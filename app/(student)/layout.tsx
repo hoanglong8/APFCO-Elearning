@@ -14,7 +14,8 @@ export default async function StudentLayout({ children }: { children: React.Reac
     .eq("id", user.id)
     .single();
 
-  if (!profile) redirect("/login");
+  if (!profile) redirect("/admin/dashboard");
+  if (["admin", "trainer", "director"].includes(profile.role ?? "")) redirect("/admin/dashboard");
 
   return (
     <div className="flex h-screen bg-gray-50">

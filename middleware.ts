@@ -32,7 +32,9 @@ export async function middleware(request: NextRequest) {
   // Public routes
   if (pathname.startsWith("/login") || pathname.startsWith("/auth")) {
     if (user) {
-      return NextResponse.redirect(new URL("/dashboard", request.url));
+      const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
+      const isAdmin = profile?.role && ["admin", "trainer", "director"].includes(profile.role);
+      return NextResponse.redirect(new URL(isAdmin ? "/admin/dashboard" : "/dashboard", request.url));
     }
     return supabaseResponse;
   }

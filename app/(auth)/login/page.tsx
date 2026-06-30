@@ -22,11 +22,17 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError("Email hoặc mật khẩu không đúng.");
     } else {
-      router.push("/dashboard");
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("role")
+        .eq("id", data.user.id)
+        .single();
+      const isAdmin = profile?.role && ["admin", "trainer", "director"].includes(profile.role);
+      router.push(isAdmin ? "/admin/dashboard" : "/dashboard");
       router.refresh();
     }
     setLoading(false);

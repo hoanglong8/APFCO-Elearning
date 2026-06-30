@@ -41,7 +41,7 @@ export function Sidebar({ profile }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const supabase = createClient();
-  const isAdmin = ["admin", "trainer"].includes(profile.role);
+  const isAdmin = ["admin", "trainer", "director"].includes(profile.role);
   const navItems = isAdmin ? adminNav : studentNav;
 
   async function handleLogout() {

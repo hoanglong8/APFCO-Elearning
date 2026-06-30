@@ -13,7 +13,7 @@ export default async function HomePage() {
     .eq("id", user.id)
     .single();
 
-  if (profile?.role && ["admin", "trainer"].includes(profile.role)) {
+  if (profile?.role && ["admin", "trainer", "director"].includes(profile.role)) {
     redirect("/admin/dashboard");
   }
 

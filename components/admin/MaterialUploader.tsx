@@ -104,7 +104,7 @@ export function MaterialUploader({ modules }: Props) {
                 <SelectTrigger><SelectValue placeholder="Chọn module" /></SelectTrigger>
                 <SelectContent>
                   {modules.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>Ngày {m.day_number} – {m.title}</SelectItem>
+                    <SelectItem key={m.id} value={m.id}>{m.title}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

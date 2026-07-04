@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Upload, Link2, Plus } from "lucide-react";
 import type { Module } from "@/types/database.types";
+import { createMaterialUploadUrl } from "@/app/admin/materials/actions";
 
 interface Props {
   modules: Pick<Module, "id" | "title" | "day_number">[];
@@ -40,12 +41,18 @@ export function MaterialUploader({ modules }: Props) {
     if (file) {
       const ext = file.name.split(".").pop();
       const path = `${moduleId}/${Date.now()}.${ext}`;
-      const { error: uploadErr } = await supabase.storage
-        .from("materials")
-        .upload(path, file, { upsert: true });
-
-      if (uploadErr) {
-        setError("Lỗi upload file: " + uploadErr.message);
+      try {
+        const { token } = await createMaterialUploadUrl(path);
+        const { error: uploadErr } = await supabase.storage
+          .from("materials")
+          .uploadToSignedUrl(path, token, file);
+        if (uploadErr) {
+          setError("Lỗi upload file: " + uploadErr.message);
+          setUploading(false);
+          return;
+        }
+      } catch (err: any) {
+        setError("Lỗi upload file: " + (err?.message ?? "không xác định"));
         setUploading(false);
         return;
       }

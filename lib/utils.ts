@@ -36,6 +36,14 @@ export function slugify(text: string) {
     .replace(/-+/g, "-");
 }
 
+export function parseCsv(text: string): string[][] {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.split(",").map((cell) => cell.trim()));
+}
+
 export function getScoreColor(score: number, max = 100) {
   const pct = (score / max) * 100;
   if (pct >= 80) return "text-green-600";

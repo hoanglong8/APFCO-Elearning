@@ -12,6 +12,7 @@ import {
   ClipboardList,
   Star,
   Target,
+  Users,
   LogOut,
   ChevronRight,
 } from "lucide-react";
@@ -33,6 +34,7 @@ const adminNav = [
   { href: "/admin/assignments", label: "Bài tập", icon: ClipboardList },
   { href: "/admin/grading", label: "Chấm bài", icon: FlaskConical },
   { href: "/admin/reports", label: "Báo cáo", icon: Star },
+  { href: "/admin/users", label: "Người dùng", icon: Users, adminOnly: true },
 ];
 
 interface SidebarProps {
@@ -44,7 +46,9 @@ export function Sidebar({ profile }: SidebarProps) {
   const router = useRouter();
   const supabase = createClient();
   const isAdmin = ["admin", "trainer", "director"].includes(profile.role);
-  const navItems = isAdmin ? adminNav : studentNav;
+  const navItems = (isAdmin ? adminNav : studentNav).filter(
+    (item) => !("adminOnly" in item) || profile.role === "admin"
+  );
 
   async function handleLogout() {
     await supabase.auth.signOut();

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,7 @@ export default function LoginPage() {
     setError("");
     const { error } = await supabase.auth.signInWithOtp({
       email,
-      options: { emailRedirectTo: `${location.origin}/auth/callback` },
+      options: { emailRedirectTo: `${location.origin}/api/auth/callback` },
     });
     if (error) {
       setError("Không thể gửi link đăng nhập. Vui lòng thử lại.");
@@ -141,6 +142,13 @@ export default function LoginPage() {
             </Tabs>
           </CardContent>
         </Card>
+
+        <p className="text-center text-sm text-gray-500">
+          Chưa có tài khoản?{" "}
+          <Link href="/signup" className="text-blue-600 hover:underline font-medium">
+            Đăng ký
+          </Link>
+        </p>
 
         <p className="text-center text-xs text-gray-400">
           Powered by FOXAI · hoanglong208@gmail.com

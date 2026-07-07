@@ -30,7 +30,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Public routes
-  if (pathname.startsWith("/login") || pathname.startsWith("/auth")) {
+  if (pathname.startsWith("/login") || pathname.startsWith("/signup") || pathname.startsWith("/auth")) {
     if (user) {
       const { data: profile } = await supabase.from("profiles").select("role").eq("id", user.id).single();
       const isAdmin = profile?.role && ["admin", "trainer", "director"].includes(profile.role);

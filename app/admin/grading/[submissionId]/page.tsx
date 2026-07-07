@@ -14,7 +14,7 @@ export default async function GradingDetailPage({ params }: { params: { submissi
 
   const { data: submission } = await supabase
     .from("submissions")
-    .select("*, profiles(full_name, email, department, factory), assignments(title, max_score, rubric, description)")
+    .select("*, profiles!submissions_student_id_fkey(full_name, email, department, factory), assignments(title, max_score, rubric, description)")
     .eq("id", params.submissionId)
     .single();
 

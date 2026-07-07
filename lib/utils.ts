@@ -23,6 +23,19 @@ export function formatDateTime(date: string | Date) {
   }).format(new Date(date));
 }
 
+export function slugify(text: string) {
+  return text
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-");
+}
+
 export function getScoreColor(score: number, max = 100) {
   const pct = (score / max) * 100;
   if (pct >= 80) return "text-green-600";
@@ -54,6 +67,13 @@ export const ROLES: Record<string, string> = {
   trainer: "Trainer",
   admin: "Admin",
   director: "Ban Giám đốc",
+};
+
+export const ASSIGNMENT_TYPE_LABELS: Record<string, string> = {
+  wf_practice: "Thực hành Workflow",
+  use_case: "Use Case",
+  plan: "Kế hoạch",
+  quiz: "Trắc nghiệm",
 };
 
 export const STATUS_LABELS: Record<string, string> = {

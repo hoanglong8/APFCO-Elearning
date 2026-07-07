@@ -6,25 +6,52 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ClipboardList, ChevronRight } from "lucide-react";
 import { formatDateTime, STATUS_LABELS } from "@/lib/utils";
+import { GradingFilter } from "@/components/admin/GradingFilter";
 
-export default async function GradingPage() {
+const statusColor: Record<string, string> = {
+  submitted: "bg-orange-50 text-orange-700",
+  graded: "bg-green-50 text-green-700",
+  returned: "bg-red-50 text-red-700",
+};
+
+export default async function GradingPage({
+  searchParams,
+}: {
+  searchParams: { assignment?: string };
+}) {
   const supabase = await createClient();
 
-  const { data: submissions } = await supabase
-    .from("submissions")
-    .select("*, profiles(full_name, department), assignments(title, max_score)")
-    .order("created_at", { ascending: true });
+  const [{ data: submissions }, { data: assignments }] = await Promise.all([
+    supabase
+      .from("submissions")
+      .select("*, profiles!submissions_student_id_fkey(full_name, department), assignments(title, max_score)")
+      .order("created_at", { ascending: true }),
+    supabase.from("assignments").select("id, title").order("created_at", { ascending: false }),
+  ]);
 
-  const pending = submissions?.filter((s) => s.status === "submitted") ?? [];
-  const graded = submissions?.filter((s) => s.status === "graded") ?? [];
+  const assignmentFilter = searchParams.assignment;
+  const filtered = assignmentFilter
+    ? submissions?.filter((s) => s.assignment_id === assignmentFilter)
+    : submissions;
+
+  const pending = filtered?.filter((s) => s.status === "submitted") ?? [];
+  const graded = filtered?.filter((s) => s.status === "graded") ?? [];
+  const returned = filtered?.filter((s) => s.status === "returned") ?? [];
+
+  const groups = [
+    { key: "pending", data: pending, empty: "Không có bài nào chờ chấm" },
+    { key: "graded", data: graded, empty: "Chưa có bài nào được chấm" },
+    { key: "returned", data: returned, empty: "Không có bài nào yêu cầu nộp lại" },
+  ];
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Chấm bài</h1>
           <p className="text-gray-500 mt-1">{pending.length} bài đang chờ chấm</p>
         </div>
+        <GradingFilter assignments={assignments ?? []} />
       </div>
 
       <Tabs defaultValue="pending">
@@ -38,12 +65,17 @@ export default async function GradingPage() {
             )}
           </TabsTrigger>
           <TabsTrigger value="graded">Đã chấm ({graded.length})</TabsTrigger>
+          <TabsTrigger value="returned">
+            Yêu cầu nộp lại
+            {returned.length > 0 && (
+              <span className="ml-1.5 bg-red-500 text-white text-xs rounded-full w-5 h-5 inline-flex items-center justify-center">
+                {returned.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
-        {[
-          { key: "pending", data: pending },
-          { key: "graded", data: graded },
-        ].map(({ key, data }) => (
+        {groups.map(({ key, data, empty }) => (
           <TabsContent key={key} value={key} className="mt-4 space-y-3">
             {data.map((sub) => {
               const profile = (sub as any).profiles;
@@ -65,10 +97,7 @@ export default async function GradingPage() {
                             {sub.status === "graded" && sub.score !== null && (
                               <span className="font-bold text-green-700">{sub.score}/{assignment?.max_score}</span>
                             )}
-                            <Badge className={`text-xs border-0 ${
-                              sub.status === "submitted" ? "bg-orange-50 text-orange-700" :
-                              "bg-green-50 text-green-700"
-                            }`}>
+                            <Badge className={`text-xs border-0 ${statusColor[sub.status] ?? "bg-gray-50 text-gray-600"}`}>
                               {STATUS_LABELS[sub.status]}
                             </Badge>
                           </div>
@@ -77,7 +106,7 @@ export default async function GradingPage() {
                       </div>
                       <Link href={`/admin/grading/${sub.id}`}>
                         <Button size="sm" variant={key === "pending" ? "default" : "outline"} className="gap-1">
-                          {key === "pending" ? "Chấm bài" : "Xem lại"}
+                          {key === "pending" ? "Chấm bài" : key === "returned" ? "Xem lại" : "Chấm lại"}
                           <ChevronRight className="w-3 h-3" />
                         </Button>
                       </Link>
@@ -89,7 +118,7 @@ export default async function GradingPage() {
             {data.length === 0 && (
               <div className="text-center py-12 text-gray-400">
                 <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>{key === "pending" ? "Không có bài nào chờ chấm" : "Chưa có bài nào được chấm"}</p>
+                <p>{empty}</p>
               </div>
             )}
           </TabsContent>

@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
   LayoutDashboard,
+  LayoutGrid,
   BookOpen,
   FlaskConical,
   ClipboardList,
@@ -27,6 +28,7 @@ const studentNav = [
 
 const adminNav = [
   { href: "/admin/dashboard", label: "Tổng quan", icon: LayoutDashboard },
+  { href: "/admin/modules", label: "Module", icon: LayoutGrid },
   { href: "/admin/materials", label: "Tài liệu", icon: BookOpen },
   { href: "/admin/assignments", label: "Bài tập", icon: ClipboardList },
   { href: "/admin/grading", label: "Chấm bài", icon: FlaskConical },

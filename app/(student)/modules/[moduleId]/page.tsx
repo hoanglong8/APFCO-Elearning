@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import {
   FileText, Video, Link2, Download, ArrowLeft,
-  CheckCircle2, Clock, FlaskConical,
+  CheckCircle2, Clock, FlaskConical, PlayCircle, Circle,
 } from "lucide-react";
 import { MarkCompleteButton } from "@/components/student/MarkCompleteButton";
 import { PromptCopyButton } from "@/components/shared/PromptCopyButton";
@@ -18,6 +18,12 @@ const materialTypeIcon: Record<string, React.ElementType> = {
   link: Link2,
   prompt: FileText,
 };
+
+const statusConfig = {
+  completed: { icon: CheckCircle2, color: "text-green-600", label: "Đã hoàn thành" },
+  in_progress: { icon: PlayCircle, color: "text-blue-600", label: "Đang học" },
+  not_started: { icon: Circle, color: "text-gray-400", label: "Chưa bắt đầu" },
+} as const;
 
 export default async function ModuleDetailPage({ params }: { params: { moduleId: string } }) {
   const supabase = await createClient();
@@ -33,7 +39,10 @@ export default async function ModuleDetailPage({ params }: { params: { moduleId:
 
   if (!mod) notFound();
 
-  const isCompleted = progress?.status === "completed";
+  const status = progress?.status ?? "not_started";
+  const isCompleted = status === "completed";
+  const cfg = statusConfig[status as keyof typeof statusConfig] ?? statusConfig.not_started;
+  const StatusIcon = cfg.icon;
 
   return (
     <div className="space-y-6">
@@ -45,7 +54,12 @@ export default async function ModuleDetailPage({ params }: { params: { moduleId:
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <Badge variant="outline" className="mb-2">Ngày {mod.day_number}</Badge>
+          <div className="flex items-center gap-2 mb-2">
+            <Badge variant="outline">Ngày {mod.day_number}</Badge>
+            <Badge variant="outline" className={`${cfg.color} border-current gap-1`}>
+              <StatusIcon className="w-3 h-3" /> {cfg.label}
+            </Badge>
+          </div>
           <h1 className="text-2xl font-bold text-gray-900">{mod.title}</h1>
           {mod.description && <p className="text-gray-500 mt-2">{mod.description}</p>}
           <div className="flex items-center gap-4 mt-3 text-sm text-gray-400">

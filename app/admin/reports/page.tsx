@@ -4,6 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Users, BookOpen, Star, Trophy, Target, TrendingUp } from "lucide-react";
 import { DEPARTMENTS, FACTORIES } from "@/lib/utils";
+import { StudentProgressTable, type StudentProgressRow } from "@/components/admin/StudentProgressTable";
 
 export default async function ReportsPage() {
   const supabase = await createClient();
@@ -21,7 +22,7 @@ export default async function ReportsPage() {
     supabase.from("module_progress").select("*"),
     supabase.from("submissions").select("*, assignments(max_score)"),
     supabase.from("action_plans").select("*"),
-    supabase.from("practice_logs").select("id, tool_used, self_rating, student_id"),
+    supabase.from("practice_logs").select("id, tool_used, self_rating, student_id, created_at"),
   ]);
 
   const totalStudents = profiles?.length ?? 0;
@@ -76,6 +77,45 @@ export default async function ReportsPage() {
   // ROI estimate: avg 1.5h/week saved per use case
   const totalUseCases = actionPlans?.reduce((sum, p) => sum + ((p.use_cases as any[])?.length ?? 0), 0) ?? 0;
   const estimatedHoursPerWeek = Math.round(totalUseCases * 1.5);
+
+  // Per-student progress table
+  const studentRows: StudentProgressRow[] = (profiles ?? [])
+    .map((p) => {
+      const pProgress = allProgress?.filter((pr) => pr.student_id === p.id) ?? [];
+      const completed = pProgress.filter((pr) => pr.status === "completed").length;
+      const pct = totalModules > 0 ? Math.round((completed / totalModules) * 100) : 0;
+
+      const pSubs = submissions?.filter((s) => s.student_id === p.id) ?? [];
+      const pGraded = pSubs.filter((s) => s.score !== null);
+      const avgScore = pGraded.length > 0
+        ? Math.round(pGraded.reduce((sum, s) => sum + (s.score ?? 0), 0) / pGraded.length)
+        : null;
+
+      const pLogs = practiceLogs?.filter((l) => l.student_id === p.id) ?? [];
+      const activityDates = [
+        ...pProgress.map((pr) => pr.completed_at),
+        ...pSubs.map((s) => s.created_at),
+        ...pLogs.map((l) => l.created_at),
+      ].filter((d): d is string => Boolean(d));
+      const lastActivity = activityDates.length > 0
+        ? activityDates.reduce((a, b) => (a > b ? a : b))
+        : null;
+
+      return {
+        id: p.id,
+        fullName: p.full_name,
+        department: p.department ? (DEPARTMENTS[p.department] ?? p.department) : "--",
+        factory: p.factory ? (FACTORIES[p.factory] ?? p.factory) : "--",
+        completedModules: completed,
+        totalModules,
+        pct,
+        avgScore,
+        submissionsCount: pSubs.length,
+        aiChampion: Boolean(p.ai_champion),
+        lastActivity,
+      };
+    })
+    .sort((a, b) => b.pct - a.pct);
 
   return (
     <div className="space-y-6">
@@ -239,6 +279,8 @@ export default async function ReportsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <StudentProgressTable rows={studentRows} />
     </div>
   );
 }

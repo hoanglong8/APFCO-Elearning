@@ -74,7 +74,7 @@ export default async function PracticePage({ params }: { params: { wfId: string 
                     href="https://chat.openai.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline"
+                    className="text-xs text-green-600 hover:underline"
                   >
                     Mở ChatGPT →
                   </a>
@@ -83,7 +83,7 @@ export default async function PracticePage({ params }: { params: { wfId: string 
                     href="https://gemini.google.com"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:underline"
+                    className="text-xs text-green-600 hover:underline"
                   >
                     Mở Gemini →
                   </a>

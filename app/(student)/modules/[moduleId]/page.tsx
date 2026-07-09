@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -83,41 +83,39 @@ export default async function ModuleDetailPage({ params }: { params: { moduleId:
 
       {/* Materials */}
       {materials && materials.length > 0 && (
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Tài liệu & Slide</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-gray-800">Tài liệu & Slide</h2>
+          <div className="grid md:grid-cols-2 gap-4">
             {materials.map((mat) => {
               const Icon = materialTypeIcon[mat.material_type] ?? FileText;
               const url = mat.file_url ?? mat.external_url;
               return (
-                <div key={mat.id} className="flex items-center gap-3 p-3 rounded-lg border hover:bg-gray-50 transition-colors">
-                  <div className="w-8 h-8 bg-blue-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                    <Icon className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-sm text-gray-900 truncate">{mat.title}</p>
-                    <p className="text-xs text-gray-400 capitalize">{mat.material_type}</p>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    {mat.material_type === "prompt" && mat.file_url && (
-                      <PromptCopyButton url={mat.file_url} />
-                    )}
-                    {url && (
-                      <a href={url} target="_blank" rel="noopener noreferrer">
-                        <Button variant="outline" size="sm" className="gap-1 h-8">
-                          {mat.is_downloadable ? <Download className="w-3 h-3" /> : <Link2 className="w-3 h-3" />}
-                          {mat.is_downloadable ? "Tải" : "Mở"}
-                        </Button>
-                      </a>
-                    )}
-                  </div>
-                </div>
+                <Card key={mat.id} className="border-t-4 border-t-green-600">
+                  <CardContent className="p-5 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Icon className="w-4 h-4 text-green-600 flex-shrink-0" />
+                      <p className="font-semibold text-gray-900">{mat.title}</p>
+                    </div>
+                    <p className="text-xs text-gray-400 uppercase tracking-wide">Loại: {mat.material_type}</p>
+                    <div className="flex items-center gap-2">
+                      {mat.material_type === "prompt" && mat.file_url && (
+                        <PromptCopyButton url={mat.file_url} />
+                      )}
+                      {url && (
+                        <a href={url} target="_blank" rel="noopener noreferrer">
+                          <Button variant="outline" size="sm" className="gap-1">
+                            {mat.is_downloadable ? <Download className="w-3 h-3" /> : <Link2 className="w-3 h-3" />}
+                            {mat.is_downloadable ? "Tải tài liệu" : "Mở tài liệu"}
+                          </Button>
+                        </a>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
               );
             })}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       {/* Workflow Practices */}
@@ -125,12 +123,12 @@ export default async function ModuleDetailPage({ params }: { params: { moduleId:
         <div className="space-y-3">
           <h2 className="text-lg font-semibold text-gray-800">Thực hành Workflow</h2>
           {practices.map((wf) => (
-            <Card key={wf.id} className="border-l-4 border-l-blue-500">
+            <Card key={wf.id} className="border-l-4 border-l-green-600">
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <Badge className="bg-blue-100 text-blue-700 border-0 text-xs">{wf.wf_code}</Badge>
+                      <Badge className="bg-green-100 text-green-700 border-0 text-xs">{wf.wf_code}</Badge>
                       <h3 className="font-semibold text-gray-900">{wf.title}</h3>
                     </div>
                     {wf.description && (

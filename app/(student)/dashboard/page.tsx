@@ -140,7 +140,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Tài liệu học</CardTitle>
               <Link href="/modules">
-                <Button variant="ghost" size="sm" className="text-blue-600 h-7 text-xs">Xem tất cả</Button>
+                <Button variant="ghost" size="sm" className="text-green-600 h-7 text-xs">Xem tất cả</Button>
               </Link>
             </div>
           </CardHeader>
@@ -180,7 +180,7 @@ export default async function DashboardPage() {
             <div className="flex items-center justify-between">
               <CardTitle className="text-base">Bài tập cần nộp</CardTitle>
               <Link href="/assignments">
-                <Button variant="ghost" size="sm" className="text-blue-600 h-7 text-xs">Xem tất cả</Button>
+                <Button variant="ghost" size="sm" className="text-green-600 h-7 text-xs">Xem tất cả</Button>
               </Link>
             </div>
           </CardHeader>

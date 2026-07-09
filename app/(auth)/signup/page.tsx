@@ -58,10 +58,10 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100 p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl mb-2">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-green-600 rounded-2xl mb-2">
             <span className="text-white font-bold text-2xl">AI</span>
           </div>
           <h1 className="text-2xl font-bold text-gray-900">APFCO AI Training</h1>
@@ -137,7 +137,7 @@ export default function SignupPage() {
 
             <p className="text-center text-sm text-gray-500 mt-4">
               Đã có tài khoản?{" "}
-              <Link href="/login" className="text-blue-600 hover:underline font-medium">
+              <Link href="/login" className="text-green-600 hover:underline font-medium">
                 Đăng nhập
               </Link>
             </p>

@@ -85,7 +85,7 @@ function ModuleCard({ mod, status }: { mod: any; status: string }) {
               <BookOpen className={`w-5 h-5 ${cfg.color}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900 group-hover:text-blue-600 transition-colors line-clamp-2">
+              <p className="font-semibold text-gray-900 group-hover:text-green-600 transition-colors line-clamp-2">
                 {mod.title}
               </p>
               {mod.description && (

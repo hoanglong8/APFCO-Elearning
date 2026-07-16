@@ -2,7 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Star, CheckCircle2, XCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft, Star, CheckCircle2, XCircle, Paperclip, Download } from "lucide-react";
 import Link from "next/link";
 import { SubmissionForm } from "@/components/student/SubmissionForm";
 import { QuizForm } from "@/components/student/QuizForm";
@@ -55,6 +56,26 @@ export default async function SubmitPage({ params }: { params: { id: string } })
           )}
         </div>
       </div>
+
+      {/* File đính kèm từ trainer */}
+      {assignment.attachment_url && (
+        <Card>
+          <CardContent className="p-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              <Paperclip className="w-4 h-4 text-green-600 flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900 truncate">{assignment.attachment_name ?? "Tài liệu đính kèm"}</p>
+                <p className="text-xs text-gray-400">Tài liệu đề bài / mẫu từ trainer</p>
+              </div>
+            </div>
+            <a href={assignment.attachment_url} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
+              <Button variant="outline" size="sm" className="gap-1">
+                <Download className="w-3 h-3" /> Tải file
+              </Button>
+            </a>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Rubric */}
       {!isQuiz && assignment.rubric && Array.isArray(assignment.rubric) && assignment.rubric.length > 0 && (

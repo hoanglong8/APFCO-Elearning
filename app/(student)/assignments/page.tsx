@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ClipboardList, Clock, ChevronRight } from "lucide-react";
+import { ClipboardList, Clock, ChevronRight, Paperclip } from "lucide-react";
 import { formatDate, STATUS_LABELS } from "@/lib/utils";
 
 const statusBadge: Record<string, string> = {
@@ -57,7 +57,12 @@ export default async function AssignmentsPage() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
-                      <p className="font-semibold text-gray-900">{assignment.title}</p>
+                      <p className="font-semibold text-gray-900 flex items-center gap-1.5">
+                        {assignment.title}
+                        {assignment.attachment_url && (
+                          <Paperclip className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                        )}
+                      </p>
                       <div className="flex items-center gap-1.5 flex-shrink-0">
                         {sub?.is_late && (
                           <Badge className="text-xs border-0 bg-amber-50 text-amber-700">Nộp muộn</Badge>

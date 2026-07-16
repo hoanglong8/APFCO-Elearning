@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,9 +16,12 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
   AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, Save, ClipboardList, Pencil, Trash } from "lucide-react";
+import { Plus, Trash2, Save, ClipboardList, Pencil, Trash, Paperclip, Upload, X } from "lucide-react";
 import type { Assignment, Module, RubricItem, QuizQuestion } from "@/types/database.types";
 import { ASSIGNMENT_TYPE_LABELS, DEPARTMENTS, formatDate } from "@/lib/utils";
+import { createMaterialUploadUrl } from "@/app/admin/materials/actions";
+
+const MAX_ATTACHMENT_MB = 20;
 
 interface AssignmentRow extends Assignment {
   submissionTotal: number;
@@ -42,6 +45,8 @@ const emptyForm = {
   published: false,
   rubric: [] as RubricItem[],
   quiz: [] as QuizQuestion[],
+  attachmentUrl: null as string | null,
+  attachmentName: null as string | null,
 };
 
 export function AssignmentManager({ assignments, modules, creatorId }: Props) {
@@ -55,10 +60,13 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
   const [error, setError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AssignmentRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const attachmentRef = useRef<HTMLInputElement>(null);
 
   function openCreate() {
     setEditingId(null);
     setForm(emptyForm);
+    setAttachmentFile(null);
     setError("");
     setDialogOpen(true);
   }
@@ -76,7 +84,10 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       published: a.is_published,
       rubric: a.rubric ?? [],
       quiz: a.quiz_questions ?? [],
+      attachmentUrl: a.attachment_url,
+      attachmentName: a.attachment_name,
     });
+    setAttachmentFile(null);
     setError("");
     setDialogOpen(true);
   }
@@ -156,9 +167,42 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       }
     }
 
+    if (attachmentFile && attachmentFile.size > MAX_ATTACHMENT_MB * 1024 * 1024) {
+      setError(`File đính kèm vượt quá ${MAX_ATTACHMENT_MB}MB.`);
+      return;
+    }
+
     setSaving(true);
     setError("");
     const rubricTotal = form.rubric.reduce((s, r) => s + r.max_score, 0);
+
+    let attachmentUrl = form.attachmentUrl;
+    let attachmentName = form.attachmentName;
+
+    if (attachmentFile) {
+      const ext = attachmentFile.name.split(".").pop();
+      const safeName = attachmentFile.name
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-zA-Z0-9._-]/g, "_");
+      const path = `assignments/${Date.now()}-${safeName}`;
+      try {
+        const { token } = await createMaterialUploadUrl(path);
+        const { error: uploadErr } = await supabase.storage.from("materials").uploadToSignedUrl(path, token, attachmentFile);
+        if (uploadErr) {
+          setError("Lỗi upload file: " + uploadErr.message);
+          setSaving(false);
+          return;
+        }
+        const { data: { publicUrl } } = supabase.storage.from("materials").getPublicUrl(path);
+        attachmentUrl = publicUrl;
+        attachmentName = attachmentFile.name;
+      } catch (err: any) {
+        setError("Lỗi upload file: " + (err?.message ?? "không xác định"));
+        setSaving(false);
+        return;
+      }
+    }
 
     const payload = {
       title: form.title,
@@ -172,6 +216,8 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       department_tags: form.departmentTags.length > 0 ? form.departmentTags : ["all"],
       rubric: !isQuiz && form.rubric.length > 0 ? form.rubric : null,
       quiz_questions: isQuiz ? form.quiz : null,
+      attachment_url: attachmentUrl,
+      attachment_name: attachmentName,
       is_published: form.published,
     };
 
@@ -186,6 +232,7 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
     }
 
     setDialogOpen(false);
+    setAttachmentFile(null);
     router.refresh();
     setSaving(false);
   }
@@ -293,6 +340,48 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
             <div className="space-y-2">
               <Label>Mô tả / Yêu cầu bài tập</Label>
               <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={3} />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="flex items-center gap-1">
+                <Paperclip className="w-3 h-3" /> File đính kèm (đề bài, tài liệu mẫu — không bắt buộc)
+              </Label>
+              {form.attachmentUrl && !attachmentFile && (
+                <div className="flex items-center gap-2 text-sm">
+                  <a href={form.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline truncate">
+                    {form.attachmentName ?? "Xem file đã đính kèm"}
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, attachmentUrl: null, attachmentName: null }))}
+                    className="text-gray-300 hover:text-red-500 flex-shrink-0"
+                    title="Xoá file đính kèm"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => attachmentRef.current?.click()}>
+                  <Upload className="w-3 h-3" /> {attachmentFile ? "Đổi file" : form.attachmentUrl ? "Thay file" : "Chọn file"}
+                </Button>
+                {attachmentFile && (
+                  <>
+                    <span className="text-sm text-gray-600 truncate">{attachmentFile.name}</span>
+                    <button type="button" onClick={() => { setAttachmentFile(null); if (attachmentRef.current) attachmentRef.current.value = ""; }} className="text-gray-300 hover:text-red-500">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
+                <input
+                  ref={attachmentRef}
+                  type="file"
+                  className="hidden"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                  onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
+                />
+              </div>
+              <p className="text-xs text-gray-400">PDF, Word, Excel, ảnh (PNG/JPG) · Tối đa {MAX_ATTACHMENT_MB}MB</p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-4">

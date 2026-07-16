@@ -130,6 +130,8 @@ export type Assignment = {
   is_published: boolean;
   rubric: RubricItem[] | null;
   quiz_questions: QuizQuestion[] | null;
+  attachment_url: string | null;
+  attachment_name: string | null;
   created_by: string | null;
   created_at: string;
 };

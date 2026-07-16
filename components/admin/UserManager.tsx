@@ -44,8 +44,7 @@ interface ParsedRow extends NewUserInput {
   valid: boolean;
 }
 
-function parseAndValidateImport(text: string): ParsedRow[] {
-  const rows = parseCsv(text);
+function validateRows(rows: string[][]): ParsedRow[] {
   if (rows.length === 0) return [];
 
   const first = rows[0].map((c) => c.toLowerCase());
@@ -78,6 +77,34 @@ function parseAndValidateImport(text: string): ParsedRow[] {
 
     return { fullName: fullName.trim(), email: email.trim(), department: dept, factory: fac, role: finalRole, warnings, valid };
   });
+}
+
+function parseAndValidateImport(text: string): ParsedRow[] {
+  return validateRows(parseCsv(text));
+}
+
+// Chỉ đọc được .xlsx (Open XML) — exceljs không hỗ trợ .xls nhị phân cũ.
+// Cố tình không dùng thư viện "xlsx" (SheetJS) vì bản trên npm có lỗ hổng
+// bảo mật mức cao chưa được vá (xem StudentProgressTable.tsx).
+async function parseExcelFile(file: File): Promise<string[][]> {
+  const ExcelJS = (await import("exceljs")).default;
+  const workbook = new ExcelJS.Workbook();
+  const buffer = await file.arrayBuffer();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return [];
+
+  const rows: string[][] = [];
+  sheet.eachRow((row) => {
+    const values = row.values as unknown[];
+    const cells: string[] = [];
+    for (let i = 1; i < values.length; i++) {
+      const v = values[i];
+      cells.push(v === null || v === undefined ? "" : String(v).trim());
+    }
+    rows.push(cells);
+  });
+  return rows;
 }
 
 function downloadText(filename: string, content: string, mime = "text/csv;charset=utf-8;") {
@@ -222,6 +249,8 @@ export function UserManager({ users, currentUserId }: Props) {
   const [importing, setImporting] = useState(false);
   const [importProgress, setImportProgress] = useState({ done: 0, total: 0 });
   const [importResults, setImportResults] = useState<CreateUserResult[]>([]);
+  const [importFileName, setImportFileName] = useState("");
+  const [importFileError, setImportFileError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   function handleParse() {
@@ -230,10 +259,35 @@ export function UserManager({ users, currentUserId }: Props) {
   }
 
   async function handleFilePick(file: File) {
+    setImportFileName(file.name);
+    setImportFileError("");
+    setImportResults([]);
+
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith(".xls")) {
+      setImportFileError(
+        "File .xls (định dạng Excel cũ) chưa được hỗ trợ đọc trực tiếp. Vui lòng mở file và \"Lưu dưới dạng\" .xlsx rồi thử lại."
+      );
+      setCsvText("");
+      setParsedRows([]);
+      return;
+    }
+
+    if (lower.endsWith(".xlsx")) {
+      try {
+        const rows = await parseExcelFile(file);
+        setCsvText("");
+        setParsedRows(validateRows(rows));
+      } catch (err: any) {
+        setImportFileError("Không đọc được file Excel: " + (err?.message ?? "lỗi không xác định"));
+        setParsedRows([]);
+      }
+      return;
+    }
+
     const text = await file.text();
     setCsvText(text);
     setParsedRows(parseAndValidateImport(text));
-    setImportResults([]);
   }
 
   async function handleImport() {
@@ -267,6 +321,8 @@ export function UserManager({ users, currentUserId }: Props) {
     setCsvText("");
     setParsedRows([]);
     setImportResults([]);
+    setImportFileName("");
+    setImportFileError("");
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -613,7 +669,7 @@ export function UserManager({ users, currentUserId }: Props) {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-500">
-                Cột: <code className="text-xs bg-gray-100 px-1 rounded">full_name,email,department,factory,role</code>
+                Cột (CSV hoặc Excel .xlsx): <code className="text-xs bg-gray-100 px-1 rounded">full_name,email,department,factory,role</code>
                 {" "}(2 cột cuối không bắt buộc)
               </p>
               <Button
@@ -632,16 +688,26 @@ export function UserManager({ users, currentUserId }: Props) {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>Chọn file CSV</Button>
+              <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>Chọn file CSV/Excel</Button>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                 className="hidden"
                 onChange={(e) => e.target.files?.[0] && handleFilePick(e.target.files[0])}
               />
-              <span className="text-xs text-gray-400">hoặc dán nội dung CSV bên dưới</span>
+              {importFileName ? (
+                <span className="text-xs text-gray-500">Đã chọn: {importFileName}</span>
+              ) : (
+                <span className="text-xs text-gray-400">hoặc dán nội dung CSV bên dưới</span>
+              )}
             </div>
+
+            {importFileError && (
+              <p className="flex items-center gap-1 text-sm text-red-500">
+                <XCircle className="w-3.5 h-3.5 flex-shrink-0" /> {importFileError}
+              </p>
+            )}
 
             <textarea
               value={csvText}

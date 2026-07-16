@@ -97,12 +97,15 @@ export default async function GradingPage({
                             {sub.status === "graded" && sub.score !== null && (
                               <span className="font-bold text-green-700">{sub.score}/{assignment?.max_score}</span>
                             )}
+                            {(sub as any).is_late && (
+                              <Badge className="text-xs border-0 bg-amber-50 text-amber-700">Nộp muộn</Badge>
+                            )}
                             <Badge className={`text-xs border-0 ${statusColor[sub.status] ?? "bg-gray-50 text-gray-600"}`}>
                               {STATUS_LABELS[sub.status]}
                             </Badge>
                           </div>
                         </div>
-                        <p className="text-xs text-gray-400 mt-1">Nộp: {formatDateTime(sub.created_at)}</p>
+                        <p className="text-xs text-gray-400 mt-1">Nộp: {formatDateTime((sub as any).submitted_at ?? sub.created_at)}</p>
                       </div>
                       <Link href={`/admin/grading/${sub.id}`}>
                         <Button size="sm" variant={key === "pending" ? "default" : "outline"} className="gap-1">

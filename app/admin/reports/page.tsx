@@ -4,7 +4,7 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Users, BookOpen, Star, Trophy, Target, TrendingUp } from "lucide-react";
 import { DEPARTMENTS, FACTORIES } from "@/lib/utils";
-import { StudentProgressTable, type StudentProgressRow } from "@/components/admin/StudentProgressTable";
+import { StudentProgressTable, type StudentProgressRow, type GradebookData } from "@/components/admin/StudentProgressTable";
 
 export default async function ReportsPage() {
   const supabase = await createClient();
@@ -16,6 +16,7 @@ export default async function ReportsPage() {
     { data: submissions },
     { data: actionPlans },
     { data: practiceLogs },
+    { data: publishedAssignments },
   ] = await Promise.all([
     supabase.from("profiles").select("*").eq("role", "student"),
     supabase.from("modules").select("id, title, day_number").eq("is_published", true),
@@ -23,6 +24,7 @@ export default async function ReportsPage() {
     supabase.from("submissions").select("*, assignments(max_score)"),
     supabase.from("action_plans").select("*"),
     supabase.from("practice_logs").select("id, tool_used, self_rating, student_id, created_at"),
+    supabase.from("assignments").select("id, title, max_score").eq("is_published", true).order("created_at"),
   ]);
 
   const totalStudents = profiles?.length ?? 0;
@@ -116,6 +118,32 @@ export default async function ReportsPage() {
       };
     })
     .sort((a, b) => b.pct - a.pct);
+
+  // Bảng điểm chi tiết (học viên × bài tập) cho sheet 2 của file Excel
+  const gradebook: GradebookData = {
+    assignments: (publishedAssignments ?? []).map((a) => ({
+      id: a.id,
+      title: a.title,
+      maxScore: a.max_score,
+    })),
+    rows: studentRows.map((sr) => {
+      const p = profiles?.find((prof) => prof.id === sr.id);
+      return {
+        fullName: sr.fullName,
+        department: sr.department,
+        factory: sr.factory,
+        cells: (publishedAssignments ?? []).map((a) => {
+          const sub = submissions?.find((s) => s.assignment_id === a.id && s.student_id === p?.id);
+          if (!sub) return "Chưa nộp";
+          const late = (sub as any).is_late ? " (muộn)" : "";
+          if (sub.status === "graded") return `${sub.score}/${a.max_score}${late}`;
+          if (sub.status === "submitted") return `Chờ chấm${late}`;
+          if (sub.status === "returned") return `Yêu cầu nộp lại${late}`;
+          return "Nháp";
+        }),
+      };
+    }),
+  };
 
   return (
     <div className="space-y-6">
@@ -280,7 +308,7 @@ export default async function ReportsPage() {
         </Card>
       </div>
 
-      <StudentProgressTable rows={studentRows} />
+      <StudentProgressTable rows={studentRows} gradebook={gradebook} />
     </div>
   );
 }

@@ -21,13 +21,20 @@ export interface StudentProgressRow {
   lastActivity: string | null;
 }
 
+export interface GradebookData {
+  /** Cột bài tập, theo thứ tự tạo */
+  assignments: { id: string; title: string; maxScore: number }[];
+  /** Mỗi ô đã format sẵn: "85/100", "85/100 (muộn)", "Chờ chấm", "Chưa nộp"... */
+  rows: { fullName: string; department: string; factory: string; cells: string[] }[];
+}
+
 function pctColor(pct: number) {
   if (pct >= 80) return "text-green-600";
   if (pct >= 50) return "text-yellow-600";
   return "text-red-500";
 }
 
-export function StudentProgressTable({ rows }: { rows: StudentProgressRow[] }) {
+export function StudentProgressTable({ rows, gradebook }: { rows: StudentProgressRow[]; gradebook?: GradebookData }) {
   const [exporting, setExporting] = useState(false);
 
   async function handleExport() {
@@ -62,6 +69,34 @@ export function StudentProgressTable({ rows }: { rows: StudentProgressRow[] }) {
           aiChampion: r.aiChampion ? "Có" : "",
           lastActivity: r.lastActivity ? formatDateTime(r.lastActivity) : "",
         });
+      }
+
+      // Sheet 2: bảng điểm chi tiết theo từng bài tập
+      if (gradebook && gradebook.assignments.length > 0) {
+        const gradeSheet = workbook.addWorksheet("Bảng điểm chi tiết");
+        gradeSheet.columns = [
+          { header: "Họ và tên", key: "fullName", width: 28 },
+          { header: "Phòng ban", key: "department", width: 22 },
+          { header: "Nhà máy", key: "factory", width: 20 },
+          ...gradebook.assignments.map((a, i) => ({
+            header: `${a.title} (/${a.maxScore})`,
+            key: `a${i}`,
+            width: 22,
+          })),
+        ];
+        gradeSheet.getRow(1).font = { bold: true };
+
+        for (const r of gradebook.rows) {
+          const row: Record<string, string> = {
+            fullName: r.fullName,
+            department: r.department,
+            factory: r.factory,
+          };
+          r.cells.forEach((cell, i) => {
+            row[`a${i}`] = cell;
+          });
+          gradeSheet.addRow(row);
+        }
       }
 
       const buffer = await workbook.xlsx.writeBuffer();

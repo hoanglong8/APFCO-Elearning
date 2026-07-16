@@ -2,10 +2,12 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect, notFound } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Star } from "lucide-react";
+import { ArrowLeft, Star, CheckCircle2, XCircle } from "lucide-react";
 import Link from "next/link";
 import { SubmissionForm } from "@/components/student/SubmissionForm";
+import { QuizForm } from "@/components/student/QuizForm";
 import { formatDate, formatDateTime, getScoreColor } from "@/lib/utils";
+import type { QuizQuestion } from "@/types/database.types";
 
 export default async function SubmitPage({ params }: { params: { id: string } }) {
   const supabase = await createClient();
@@ -18,6 +20,21 @@ export default async function SubmitPage({ params }: { params: { id: string } })
   ]);
 
   if (!assignment) notFound();
+
+  const quizQuestions = (assignment.quiz_questions ?? []) as QuizQuestion[];
+  const isQuiz = assignment.assignment_type === "quiz" && quizQuestions.length > 0;
+  const isPastDue = Boolean(assignment.due_date && new Date(assignment.due_date) < new Date());
+
+  // Bucket submissions là private — tạo signed URL để học viên xem lại file đã nộp
+  let fileSignedUrl: string | null = null;
+  if (submission?.file_url) {
+    const { data: signed } = await supabase.storage
+      .from("submissions")
+      .createSignedUrl(submission.file_url, 3600);
+    fileSignedUrl = signed?.signedUrl ?? null;
+  }
+
+  const quizAnswers = (submission?.quiz_answers ?? null) as number[] | null;
 
   return (
     <div className="space-y-6">
@@ -33,11 +50,14 @@ export default async function SubmitPage({ params }: { params: { id: string } })
             <Badge variant="outline">Hạn nộp: {formatDate(assignment.due_date)}</Badge>
           )}
           <Badge variant="outline">{assignment.max_score} điểm</Badge>
+          {submission?.is_late && (
+            <Badge className="bg-amber-50 text-amber-700 border-0">Nộp muộn</Badge>
+          )}
         </div>
       </div>
 
       {/* Rubric */}
-      {assignment.rubric && Array.isArray(assignment.rubric) && assignment.rubric.length > 0 && (
+      {!isQuiz && assignment.rubric && Array.isArray(assignment.rubric) && assignment.rubric.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Tiêu chí chấm điểm</CardTitle>
@@ -84,13 +104,78 @@ export default async function SubmitPage({ params }: { params: { id: string } })
         </Card>
       )}
 
-      {/* Submission form */}
-      <SubmissionForm
-        assignmentId={params.id}
-        studentId={user.id}
-        existingSubmission={submission}
-        maxScore={assignment.max_score}
-      />
+      {/* Returned feedback */}
+      {submission?.status === "returned" && submission.feedback && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base text-orange-800">Phản hồi từ Trainer</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-gray-700 bg-white rounded-lg p-3 border">{submission.feedback}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {isQuiz ? (
+        submission?.status === "graded" && quizAnswers ? (
+          /* Xem lại bài trắc nghiệm đã chấm */
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Xem lại bài làm</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {quizQuestions.map((q, qi) => {
+                const chosen = quizAnswers[qi];
+                const isCorrect = chosen === q.correct_index;
+                return (
+                  <div key={qi} className="space-y-2">
+                    <p className="font-medium text-sm text-gray-900 flex items-center gap-2">
+                      {isCorrect
+                        ? <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        : <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
+                      Câu {qi + 1}. {q.question}
+                    </p>
+                    <div className="space-y-1.5">
+                      {q.options.map((opt, oi) => (
+                        <div
+                          key={oi}
+                          className={`p-2.5 rounded-lg border text-sm ${
+                            oi === q.correct_index
+                              ? "border-green-500 bg-green-50 text-green-900"
+                              : oi === chosen
+                                ? "border-red-300 bg-red-50 text-red-800"
+                                : "border-gray-100 text-gray-500"
+                          }`}
+                        >
+                          {opt}
+                          {oi === q.correct_index && <span className="ml-2 text-xs font-medium">✓ Đáp án đúng</span>}
+                          {oi === chosen && oi !== q.correct_index && <span className="ml-2 text-xs">Bạn chọn</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        ) : (
+          <QuizForm
+            assignmentId={params.id}
+            // Không truyền correct_index xuống client trước khi nộp
+            questions={quizQuestions.map((q) => ({ question: q.question, options: q.options }))}
+            isPastDue={isPastDue}
+          />
+        )
+      ) : (
+        <SubmissionForm
+          assignmentId={params.id}
+          studentId={user.id}
+          existingSubmission={submission}
+          maxScore={assignment.max_score}
+          dueDate={assignment.due_date}
+          existingFileSignedUrl={fileSignedUrl}
+        />
+      )}
     </div>
   );
 }

@@ -58,11 +58,16 @@ export default async function AssignmentsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-semibold text-gray-900">{assignment.title}</p>
-                      <Badge className={`text-xs flex-shrink-0 border-0 ${
-                        sub ? (statusBadge[sub.status] ?? "bg-gray-50 text-gray-500") : "bg-orange-50 text-orange-700"
-                      }`}>
-                        {sub ? STATUS_LABELS[sub.status] : "Chưa nộp"}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 flex-shrink-0">
+                        {sub?.is_late && (
+                          <Badge className="text-xs border-0 bg-amber-50 text-amber-700">Nộp muộn</Badge>
+                        )}
+                        <Badge className={`text-xs border-0 ${
+                          sub ? (statusBadge[sub.status] ?? "bg-gray-50 text-gray-500") : "bg-orange-50 text-orange-700"
+                        }`}>
+                          {sub ? STATUS_LABELS[sub.status] : "Chưa nộp"}
+                        </Badge>
+                      </div>
                     </div>
                     {assignment.description && (
                       <p className="text-sm text-gray-500 mt-1 line-clamp-2">{assignment.description}</p>

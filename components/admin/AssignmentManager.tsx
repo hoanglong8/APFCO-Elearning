@@ -17,7 +17,7 @@ import {
   AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { Plus, Trash2, Save, ClipboardList, Pencil, Trash } from "lucide-react";
-import type { Assignment, Module, RubricItem } from "@/types/database.types";
+import type { Assignment, Module, RubricItem, QuizQuestion } from "@/types/database.types";
 import { ASSIGNMENT_TYPE_LABELS, DEPARTMENTS, formatDate } from "@/lib/utils";
 
 interface AssignmentRow extends Assignment {
@@ -41,6 +41,7 @@ const emptyForm = {
   departmentTags: [] as string[],
   published: false,
   rubric: [] as RubricItem[],
+  quiz: [] as QuizQuestion[],
 };
 
 export function AssignmentManager({ assignments, modules, creatorId }: Props) {
@@ -74,6 +75,7 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       departmentTags: (a.department_tags ?? []).filter((t) => t in DEPARTMENTS),
       published: a.is_published,
       rubric: a.rubric ?? [],
+      quiz: a.quiz_questions ?? [],
     });
     setError("");
     setDialogOpen(true);
@@ -100,8 +102,60 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
     });
   }
 
+  function addQuizQuestion() {
+    setForm((f) => ({
+      ...f,
+      quiz: [...f.quiz, { question: "", options: ["", ""], correct_index: 0 }],
+    }));
+  }
+
+  function updateQuizQuestion(qi: number, patch: Partial<QuizQuestion>) {
+    setForm((f) => {
+      const quiz = [...f.quiz];
+      quiz[qi] = { ...quiz[qi], ...patch };
+      return { ...f, quiz };
+    });
+  }
+
+  function updateQuizOption(qi: number, oi: number, value: string) {
+    setForm((f) => {
+      const quiz = [...f.quiz];
+      const options = [...quiz[qi].options];
+      options[oi] = value;
+      quiz[qi] = { ...quiz[qi], options };
+      return { ...f, quiz };
+    });
+  }
+
+  function removeQuizOption(qi: number, oi: number) {
+    setForm((f) => {
+      const quiz = [...f.quiz];
+      const q = quiz[qi];
+      const options = q.options.filter((_, j) => j !== oi);
+      const correct_index = q.correct_index === oi ? 0 : q.correct_index > oi ? q.correct_index - 1 : q.correct_index;
+      quiz[qi] = { ...q, options, correct_index };
+      return { ...f, quiz };
+    });
+  }
+
   async function handleSave() {
     if (!form.title) return;
+    const isQuiz = form.assignmentType === "quiz";
+
+    if (isQuiz) {
+      if (form.quiz.length === 0) {
+        setError("Bài trắc nghiệm cần ít nhất 1 câu hỏi.");
+        return;
+      }
+      const invalid = form.quiz.find(
+        (q) => !q.question.trim() || q.options.length < 2 || q.options.some((o) => !o.trim())
+      );
+      if (invalid) {
+        setError("Mỗi câu hỏi cần nội dung, ít nhất 2 phương án và không có phương án trống.");
+        return;
+      }
+    }
+
     setSaving(true);
     setError("");
     const rubricTotal = form.rubric.reduce((s, r) => s + r.max_score, 0);
@@ -111,12 +165,13 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       description: form.description || null,
       module_id: form.moduleId || null,
       assignment_type: form.assignmentType as any,
-      max_score: form.rubric.length > 0 ? rubricTotal : parseInt(form.maxScore) || 0,
+      max_score: !isQuiz && form.rubric.length > 0 ? rubricTotal : parseInt(form.maxScore) || 0,
       due_date: form.dueDate ? new Date(form.dueDate).toISOString() : null,
       // Trang bài tập của học viên lọc theo "department_tags chứa 'all' HOẶC chứa phòng ban của học viên"
       // (app/(student)/assignments/page.tsx) — null sẽ khiến bài tập biến mất khỏi mọi học viên.
       department_tags: form.departmentTags.length > 0 ? form.departmentTags : ["all"],
-      rubric: form.rubric.length > 0 ? form.rubric : null,
+      rubric: !isQuiz && form.rubric.length > 0 ? form.rubric : null,
+      quiz_questions: isQuiz ? form.quiz : null,
       is_published: form.published,
     };
 
@@ -275,7 +330,85 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
               <p className="text-xs text-gray-400">Không chọn = áp dụng cho tất cả</p>
             </div>
 
+            {/* Quiz builder */}
+            {form.assignmentType === "quiz" && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Câu hỏi trắc nghiệm ({form.quiz.length})</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={addQuizQuestion} className="gap-1 h-7 text-xs">
+                    <Plus className="w-3 h-3" /> Thêm câu hỏi
+                  </Button>
+                </div>
+                {form.quiz.map((q, qi) => (
+                  <div key={qi} className="space-y-2 p-3 border rounded-lg">
+                    <div className="flex items-start gap-2">
+                      <span className="text-sm font-medium text-gray-500 pt-1.5 flex-shrink-0">Câu {qi + 1}</span>
+                      <Textarea
+                        className="text-sm min-h-[38px]"
+                        rows={1}
+                        placeholder="Nội dung câu hỏi"
+                        value={q.question}
+                        onChange={(e) => updateQuizQuestion(qi, { question: e.target.value })}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForm((f) => ({ ...f, quiz: f.quiz.filter((_, j) => j !== qi) }))}
+                        className="text-gray-300 hover:text-red-500 pt-2 flex-shrink-0"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="space-y-1.5 pl-4">
+                      {q.options.map((opt, oi) => (
+                        <div key={oi} className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name={`correct-${qi}`}
+                            checked={q.correct_index === oi}
+                            onChange={() => updateQuizQuestion(qi, { correct_index: oi })}
+                            className="accent-green-600 flex-shrink-0"
+                            title="Chọn làm đáp án đúng"
+                          />
+                          <Input
+                            className="h-8 text-sm"
+                            placeholder={`Phương án ${oi + 1}`}
+                            value={opt}
+                            onChange={(e) => updateQuizOption(qi, oi, e.target.value)}
+                          />
+                          {q.options.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => removeQuizOption(qi, oi)}
+                              className="text-gray-300 hover:text-red-500 flex-shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs gap-1 text-gray-500"
+                        onClick={() => updateQuizQuestion(qi, { options: [...q.options, ""] })}
+                      >
+                        <Plus className="w-3 h-3" /> Thêm phương án
+                      </Button>
+                    </div>
+                    <p className="text-xs text-gray-400 pl-4">Chọn nút tròn bên trái để đánh dấu đáp án đúng.</p>
+                  </div>
+                ))}
+                {form.quiz.length > 0 && (
+                  <p className="text-xs text-gray-400">
+                    Chấm tự động: điểm = số câu đúng / {form.quiz.length} câu × {parseInt(form.maxScore) || 0} điểm tối đa.
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Rubric */}
+            {form.assignmentType !== "quiz" && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Tiêu chí chấm điểm (Rubric)</Label>
@@ -316,6 +449,7 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
                 </div>
               ))}
             </div>
+            )}
 
             <label className="flex items-center gap-2 cursor-pointer">
               <Checkbox checked={form.published} onCheckedChange={(v) => setForm((f) => ({ ...f, published: Boolean(v) }))} />

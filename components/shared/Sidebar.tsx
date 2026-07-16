@@ -20,6 +20,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { NotificationBell } from "@/components/shared/NotificationBell";
 import type { Profile } from "@/types/database.types";
 
 const studentNav = [
@@ -70,12 +71,13 @@ export function Sidebar({ profile }: SidebarProps) {
           <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white font-bold text-xs">AI</span>
           </div>
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="font-semibold text-sm text-gray-900 truncate">APFCO Training</p>
             <p className="text-xs text-gray-400">
               {isAdmin ? "Quản trị viên" : "Học viên"}
             </p>
           </div>
+          {!isAdmin && <NotificationBell />}
         </div>
       </div>
 

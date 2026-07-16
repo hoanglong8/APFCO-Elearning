@@ -53,6 +53,11 @@ export type Database = {
         Insert: Omit<TrainingReport, "id" | "created_at">;
         Update: Partial<Omit<TrainingReport, "id">>;
       };
+      notifications: {
+        Row: Notification;
+        Insert: Omit<Notification, "id" | "created_at">;
+        Update: Partial<Omit<Notification, "id">>;
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -124,6 +129,7 @@ export type Assignment = {
   department_tags: string[] | null;
   is_published: boolean;
   rubric: RubricItem[] | null;
+  quiz_questions: QuizQuestion[] | null;
   created_by: string | null;
   created_at: string;
 };
@@ -132,6 +138,12 @@ export type RubricItem = {
   criterion: string;
   max_score: number;
   description: string;
+};
+
+export type QuizQuestion = {
+  question: string;
+  options: string[];
+  correct_index: number;
 };
 
 export type Submission = {
@@ -148,6 +160,19 @@ export type Submission = {
   feedback: string | null;
   graded_by: string | null;
   graded_at: string | null;
+  is_late: boolean;
+  submitted_at: string | null;
+  quiz_answers: number[] | null;
+  created_at: string;
+};
+
+export type Notification = {
+  id: string;
+  user_id: string;
+  title: string;
+  body: string | null;
+  link: string | null;
+  is_read: boolean;
   created_at: string;
 };
 

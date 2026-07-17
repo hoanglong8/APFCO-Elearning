@@ -16,13 +16,14 @@ import {
 } from "@/components/ui/alert-dialog";
 import {
   UserPlus, Upload, Download, Pencil, Trash2, KeyRound, Copy, Search,
-  CheckCircle2, XCircle, AlertTriangle, Loader2, Users as UsersIcon,
+  CheckCircle2, XCircle, AlertTriangle, Loader2, Users as UsersIcon, Mail,
 } from "lucide-react";
 import { DEPARTMENTS, FACTORIES, ROLES, formatDate, parseCsv } from "@/lib/utils";
 import type { Profile } from "@/types/database.types";
 import {
   createUserAction, updateUserAction, deleteUserAction, resetPasswordAction,
-  importUsersAction, type NewUserInput, type CreateUserResult,
+  importUsersAction, bulkActivateUsersAction, type NewUserInput, type CreateUserResult,
+  type BulkActivateResult,
 } from "@/app/admin/users/actions";
 
 interface Props {
@@ -132,6 +133,78 @@ export function UserManager({ users, currentUserId }: Props) {
       return matchesQuery && matchesRole;
     });
   }, [users, search, roleFilter]);
+
+  // Selection (chọn nhiều để kích hoạt hàng loạt)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const selectedUsers = useMemo(() => users.filter((u) => selectedIds.has(u.id)), [users, selectedIds]);
+  const allFilteredSelected = filtered.length > 0 && filtered.every((u) => selectedIds.has(u.id));
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelectedIds((prev) => {
+      if (allFilteredSelected) {
+        const next = new Set(prev);
+        filtered.forEach((u) => next.delete(u.id));
+        return next;
+      }
+      const next = new Set(prev);
+      filtered.forEach((u) => next.add(u.id));
+      return next;
+    });
+  }
+
+  // Bulk activate (đặt lại mật khẩu + gửi email hàng loạt)
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkActivating, setBulkActivating] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+  const [bulkResults, setBulkResults] = useState<BulkActivateResult[]>([]);
+
+  function openBulkActivate() {
+    setBulkResults([]);
+    setBulkProgress({ done: 0, total: 0 });
+    setBulkOpen(true);
+  }
+
+  function closeBulkActivate() {
+    if (bulkActivating) return;
+    setBulkOpen(false);
+    setBulkResults([]);
+    setSelectedIds(new Set());
+  }
+
+  async function handleBulkActivate() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setBulkActivating(true);
+    setBulkProgress({ done: 0, total: ids.length });
+    const results: BulkActivateResult[] = [];
+    const chunkSize = 10;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const chunkResults = await bulkActivateUsersAction(chunk);
+      results.push(...chunkResults);
+      setBulkProgress({ done: results.length, total: ids.length });
+    }
+    setBulkResults(results);
+    setBulkActivating(false);
+    router.refresh();
+  }
+
+  function downloadBulkResults() {
+    const header = "full_name,email,password,password_reset,email_sent,error";
+    const lines = bulkResults.map((r) =>
+      [r.fullName, r.email, r.password ?? "", r.passwordReset ? "yes" : "no", r.emailSent ? "yes" : "no", r.error ?? ""].join(",")
+    );
+    downloadText(`ket-qua-kich-hoat-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...lines].join("\n"));
+  }
 
   // Create user
   const [createOpen, setCreateOpen] = useState(false);
@@ -350,6 +423,11 @@ export function UserManager({ users, currentUserId }: Props) {
           </Select>
         </div>
         <div className="flex gap-2">
+          {selectedIds.size > 0 && (
+            <Button variant="outline" className="gap-2" onClick={openBulkActivate}>
+              <Mail className="w-4 h-4" /> Kích hoạt đã chọn ({selectedIds.size})
+            </Button>
+          )}
           <Button variant="outline" className="gap-2" onClick={() => setImportOpen(true)}>
             <Upload className="w-4 h-4" /> Import CSV
           </Button>
@@ -363,6 +441,9 @@ export function UserManager({ users, currentUserId }: Props) {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-10">
+                <Checkbox checked={allFilteredSelected} onCheckedChange={toggleSelectAll} />
+              </TableHead>
               <TableHead>Người dùng</TableHead>
               <TableHead>Phòng ban</TableHead>
               <TableHead>Nhà máy</TableHead>
@@ -373,7 +454,10 @@ export function UserManager({ users, currentUserId }: Props) {
           </TableHeader>
           <TableBody>
             {filtered.map((u) => (
-              <TableRow key={u.id}>
+              <TableRow key={u.id} data-state={selectedIds.has(u.id) ? "selected" : undefined}>
+                <TableCell>
+                  <Checkbox checked={selectedIds.has(u.id)} onCheckedChange={() => toggleSelect(u.id)} />
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <span className="font-medium text-gray-900">{u.full_name}</span>
@@ -412,7 +496,7 @@ export function UserManager({ users, currentUserId }: Props) {
             ))}
             {filtered.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-10 text-gray-400">
+                <TableCell colSpan={7} className="text-center py-10 text-gray-400">
                   <UsersIcon className="w-8 h-8 mx-auto mb-2 opacity-30" />
                   Không tìm thấy người dùng nào
                 </TableCell>
@@ -657,6 +741,102 @@ export function UserManager({ users, currentUserId }: Props) {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk activate dialog */}
+      <Dialog open={bulkOpen} onOpenChange={(open) => !open && closeBulkActivate()}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Kích hoạt hàng loạt ({selectedUsers.length} người dùng)</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {bulkResults.length === 0 ? (
+              <>
+                <p className="text-sm text-gray-600">
+                  Hệ thống sẽ đặt lại mật khẩu cho <strong>{selectedUsers.length}</strong> tài khoản đã chọn và gửi
+                  email chứa mật khẩu mới tới địa chỉ email của từng người. Mật khẩu cũ sẽ ngừng hoạt động ngay lập
+                  tức. Hành động này không thể hoàn tác.
+                </p>
+                <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
+                  {selectedUsers.map((u) => (
+                    <div key={u.id} className="px-3 py-1.5 text-sm flex items-center justify-between gap-2">
+                      <span className="truncate">{u.full_name}</span>
+                      <span className="text-gray-400 truncate">{u.email}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={handleBulkActivate} disabled={bulkActivating} className="gap-2">
+                    {bulkActivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                    {bulkActivating
+                      ? `Đang xử lý ${bulkProgress.done}/${bulkProgress.total}...`
+                      : "Kích hoạt & Gửi email"}
+                  </Button>
+                  <Button variant="outline" onClick={closeBulkActivate} disabled={bulkActivating}>Hủy</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <p className="text-sm">
+                    <span className="text-green-600 font-medium">
+                      {bulkResults.filter((r) => r.emailSent).length} gửi email thành công
+                    </span>
+                    {" · "}
+                    <span className="text-yellow-600 font-medium">
+                      {bulkResults.filter((r) => r.passwordReset && !r.emailSent).length} đặt mật khẩu nhưng gửi mail lỗi
+                    </span>
+                    {" · "}
+                    <span className="text-red-500 font-medium">
+                      {bulkResults.filter((r) => !r.passwordReset).length} lỗi
+                    </span>
+                  </p>
+                  <Button variant="outline" size="sm" className="gap-2" onClick={downloadBulkResults}>
+                    <Download className="w-3 h-3" /> Tải kết quả (kèm mật khẩu)
+                  </Button>
+                </div>
+                <div className="border rounded-lg overflow-hidden max-h-72 overflow-y-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Người dùng</TableHead>
+                        <TableHead>Mật khẩu</TableHead>
+                        <TableHead>Email</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bulkResults.map((r) => (
+                        <TableRow key={r.id}>
+                          <TableCell>
+                            <p className="font-medium">{r.fullName || "--"}</p>
+                            <p className="text-xs text-gray-400">{r.email || "--"}</p>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {r.passwordReset
+                              ? <span className="text-green-600">Đã đặt lại</span>
+                              : <span className="text-red-500">{r.error}</span>}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {r.emailSent
+                              ? <span className="text-green-600">Đã gửi</span>
+                              : r.passwordReset
+                                ? <span className="text-yellow-600">Lỗi gửi: {r.error}</span>
+                                : "--"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+                <p className="text-xs text-gray-400">
+                  Với các dòng gửi email lỗi, mật khẩu vẫn được đặt lại thành công — hãy tải file kết quả để lấy mật
+                  khẩu gửi thủ công.
+                </p>
+                <Button variant="outline" onClick={closeBulkActivate}>Đóng</Button>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

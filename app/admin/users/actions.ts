@@ -3,6 +3,7 @@
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { randomBytes } from "crypto";
+import { sendActivationEmail } from "@/lib/email";
 
 // Chỉ "admin" (không phải trainer/director) mới được quản lý người dùng —
 // đổi role/tạo tài khoản là hành động có thể leo thang đặc quyền, nên kiểm
@@ -151,4 +152,59 @@ export async function resetPasswordAction(id: string): Promise<{ password: strin
   const { error } = await service.auth.admin.updateUserById(id, { password });
   if (error) throw new Error(error.message);
   return { password };
+}
+
+export interface BulkActivateResult {
+  id: string;
+  email: string;
+  fullName: string;
+  passwordReset: boolean;
+  emailSent: boolean;
+  password?: string;
+  error?: string;
+}
+
+async function activateOneUser(
+  service: ReturnType<typeof serviceClient>,
+  id: string
+): Promise<BulkActivateResult> {
+  const { data: profile } = await service
+    .from("profiles")
+    .select("id, full_name, email")
+    .eq("id", id)
+    .single();
+
+  if (!profile) {
+    return { id, email: "", fullName: "", passwordReset: false, emailSent: false, error: "Không tìm thấy người dùng." };
+  }
+
+  const password = generatePassword();
+  const { error: pwErr } = await service.auth.admin.updateUserById(id, { password });
+  if (pwErr) {
+    return { id, email: profile.email, fullName: profile.full_name, passwordReset: false, emailSent: false, error: pwErr.message };
+  }
+
+  const emailResult = await sendActivationEmail({ to: profile.email, fullName: profile.full_name, password });
+
+  return {
+    id,
+    email: profile.email,
+    fullName: profile.full_name,
+    passwordReset: true,
+    emailSent: emailResult.success,
+    password,
+    error: emailResult.success ? undefined : emailResult.error,
+  };
+}
+
+// Đặt lại mật khẩu và gửi email chứa mật khẩu mới cho từng người dùng đã chọn.
+// Xử lý tuần tự (không Promise.all) để không vượt giới hạn tần suất gửi của Resend.
+export async function bulkActivateUsersAction(ids: string[]): Promise<BulkActivateResult[]> {
+  await requireAdmin();
+  const service = serviceClient();
+  const results: BulkActivateResult[] = [];
+  for (const id of ids) {
+    results.push(await activateOneUser(service, id));
+  }
+  return results;
 }

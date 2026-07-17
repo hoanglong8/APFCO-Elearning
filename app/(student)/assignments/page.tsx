@@ -59,8 +59,10 @@ export default async function AssignmentsPage() {
                     <div className="flex items-start justify-between gap-2">
                       <p className="font-semibold text-gray-900 flex items-center gap-1.5">
                         {assignment.title}
-                        {assignment.attachment_url && (
-                          <Paperclip className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                        {assignment.attachments && assignment.attachments.length > 0 && (
+                          <span className="flex items-center gap-0.5 text-xs text-gray-400 font-normal flex-shrink-0">
+                            <Paperclip className="w-3.5 h-3.5" /> {assignment.attachments.length}
+                          </span>
                         )}
                       </p>
                       <div className="flex items-center gap-1.5 flex-shrink-0">

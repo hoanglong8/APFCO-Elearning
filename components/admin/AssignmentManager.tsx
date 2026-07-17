@@ -16,12 +16,13 @@ import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
   AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { Plus, Trash2, Save, ClipboardList, Pencil, Trash, Paperclip, Upload, X } from "lucide-react";
-import type { Assignment, Module, RubricItem, QuizQuestion } from "@/types/database.types";
+import { Plus, Trash2, Save, ClipboardList, Pencil, Trash, Paperclip, Upload, X, FileText } from "lucide-react";
+import type { Assignment, Module, RubricItem, QuizQuestion, AssignmentAttachment } from "@/types/database.types";
 import { ASSIGNMENT_TYPE_LABELS, DEPARTMENTS, formatDate } from "@/lib/utils";
 import { createMaterialUploadUrl } from "@/app/admin/materials/actions";
 
 const MAX_ATTACHMENT_MB = 20;
+const MAX_ATTACHMENTS = 10;
 
 interface AssignmentRow extends Assignment {
   submissionTotal: number;
@@ -45,8 +46,7 @@ const emptyForm = {
   published: false,
   rubric: [] as RubricItem[],
   quiz: [] as QuizQuestion[],
-  attachmentUrl: null as string | null,
-  attachmentName: null as string | null,
+  attachments: [] as AssignmentAttachment[],
 };
 
 export function AssignmentManager({ assignments, modules, creatorId }: Props) {
@@ -60,13 +60,13 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
   const [error, setError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AssignmentRow | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [newAttachmentFiles, setNewAttachmentFiles] = useState<File[]>([]);
   const attachmentRef = useRef<HTMLInputElement>(null);
 
   function openCreate() {
     setEditingId(null);
     setForm(emptyForm);
-    setAttachmentFile(null);
+    setNewAttachmentFiles([]);
     setError("");
     setDialogOpen(true);
   }
@@ -84,12 +84,33 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       published: a.is_published,
       rubric: a.rubric ?? [],
       quiz: a.quiz_questions ?? [],
-      attachmentUrl: a.attachment_url,
-      attachmentName: a.attachment_name,
+      attachments: a.attachments ?? [],
     });
-    setAttachmentFile(null);
+    setNewAttachmentFiles([]);
     setError("");
     setDialogOpen(true);
+  }
+
+  function addAttachmentFiles(files: FileList | null) {
+    if (!files || files.length === 0) return;
+    setNewAttachmentFiles((prev) => {
+      const combined = [...prev, ...Array.from(files)];
+      const totalExisting = form.attachments.length;
+      if (totalExisting + combined.length > MAX_ATTACHMENTS) {
+        setError(`Chỉ được đính kèm tối đa ${MAX_ATTACHMENTS} file.`);
+        return combined.slice(0, Math.max(0, MAX_ATTACHMENTS - totalExisting));
+      }
+      return combined;
+    });
+    if (attachmentRef.current) attachmentRef.current.value = "";
+  }
+
+  function removeExistingAttachment(index: number) {
+    setForm((f) => ({ ...f, attachments: f.attachments.filter((_, i) => i !== index) }));
+  }
+
+  function removeNewAttachmentFile(index: number) {
+    setNewAttachmentFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   function toggleDept(key: string) {
@@ -167,8 +188,13 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       }
     }
 
-    if (attachmentFile && attachmentFile.size > MAX_ATTACHMENT_MB * 1024 * 1024) {
-      setError(`File đính kèm vượt quá ${MAX_ATTACHMENT_MB}MB.`);
+    const oversized = newAttachmentFiles.find((f) => f.size > MAX_ATTACHMENT_MB * 1024 * 1024);
+    if (oversized) {
+      setError(`File "${oversized.name}" vượt quá ${MAX_ATTACHMENT_MB}MB.`);
+      return;
+    }
+    if (form.attachments.length + newAttachmentFiles.length > MAX_ATTACHMENTS) {
+      setError(`Chỉ được đính kèm tối đa ${MAX_ATTACHMENTS} file.`);
       return;
     }
 
@@ -176,33 +202,31 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
     setError("");
     const rubricTotal = form.rubric.reduce((s, r) => s + r.max_score, 0);
 
-    let attachmentUrl = form.attachmentUrl;
-    let attachmentName = form.attachmentName;
-
-    if (attachmentFile) {
-      const ext = attachmentFile.name.split(".").pop();
-      const safeName = attachmentFile.name
+    const uploadedAttachments: AssignmentAttachment[] = [];
+    for (const file of newAttachmentFiles) {
+      const safeName = file.name
         .normalize("NFD")
         .replace(/[̀-ͯ]/g, "")
         .replace(/[^a-zA-Z0-9._-]/g, "_");
       const path = `assignments/${Date.now()}-${safeName}`;
       try {
         const { token } = await createMaterialUploadUrl(path);
-        const { error: uploadErr } = await supabase.storage.from("materials").uploadToSignedUrl(path, token, attachmentFile);
+        const { error: uploadErr } = await supabase.storage.from("materials").uploadToSignedUrl(path, token, file);
         if (uploadErr) {
-          setError("Lỗi upload file: " + uploadErr.message);
+          setError(`Lỗi upload file "${file.name}": ` + uploadErr.message);
           setSaving(false);
           return;
         }
         const { data: { publicUrl } } = supabase.storage.from("materials").getPublicUrl(path);
-        attachmentUrl = publicUrl;
-        attachmentName = attachmentFile.name;
+        uploadedAttachments.push({ url: publicUrl, name: file.name });
       } catch (err: any) {
-        setError("Lỗi upload file: " + (err?.message ?? "không xác định"));
+        setError(`Lỗi upload file "${file.name}": ` + (err?.message ?? "không xác định"));
         setSaving(false);
         return;
       }
     }
+
+    const finalAttachments = [...form.attachments, ...uploadedAttachments];
 
     const payload = {
       title: form.title,
@@ -216,8 +240,7 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
       department_tags: form.departmentTags.length > 0 ? form.departmentTags : ["all"],
       rubric: !isQuiz && form.rubric.length > 0 ? form.rubric : null,
       quiz_questions: isQuiz ? form.quiz : null,
-      attachment_url: attachmentUrl,
-      attachment_name: attachmentName,
+      attachments: finalAttachments,
       is_published: form.published,
     };
 
@@ -232,7 +255,7 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
     }
 
     setDialogOpen(false);
-    setAttachmentFile(null);
+    setNewAttachmentFiles([]);
     router.refresh();
     setSaving(false);
   }
@@ -285,6 +308,11 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
                     <span>{a.submissionTotal} bài nộp</span>
                     {a.submissionPending > 0 && (
                       <span className="text-orange-600 font-medium">{a.submissionPending} chờ chấm</span>
+                    )}
+                    {a.attachments && a.attachments.length > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Paperclip className="w-3 h-3" /> {a.attachments.length} file
+                      </span>
                     )}
                   </div>
                 </div>
@@ -344,44 +372,63 @@ export function AssignmentManager({ assignments, modules, creatorId }: Props) {
 
             <div className="space-y-2">
               <Label className="flex items-center gap-1">
-                <Paperclip className="w-3 h-3" /> File đính kèm (đề bài, tài liệu mẫu — không bắt buộc)
+                <Paperclip className="w-3 h-3" /> File đính kèm (đề bài, tài liệu mẫu — không bắt buộc, tối đa {MAX_ATTACHMENTS} file)
               </Label>
-              {form.attachmentUrl && !attachmentFile && (
-                <div className="flex items-center gap-2 text-sm">
-                  <a href={form.attachmentUrl} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline truncate">
-                    {form.attachmentName ?? "Xem file đã đính kèm"}
-                  </a>
-                  <button
-                    type="button"
-                    onClick={() => setForm((f) => ({ ...f, attachmentUrl: null, attachmentName: null }))}
-                    className="text-gray-300 hover:text-red-500 flex-shrink-0"
-                    title="Xoá file đính kèm"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+
+              {(form.attachments.length > 0 || newAttachmentFiles.length > 0) && (
+                <div className="space-y-1.5">
+                  {form.attachments.map((att, i) => (
+                    <div key={`existing-${i}`} className="flex items-center gap-2 text-sm bg-gray-50 rounded-lg px-3 py-1.5">
+                      <FileText className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                      <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-green-700 hover:underline truncate flex-1 min-w-0">
+                        {att.name}
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => removeExistingAttachment(i)}
+                        className="text-gray-300 hover:text-red-500 flex-shrink-0"
+                        title="Xoá file đính kèm"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {newAttachmentFiles.map((file, i) => (
+                    <div key={`new-${i}`} className="flex items-center gap-2 text-sm bg-green-50 rounded-lg px-3 py-1.5">
+                      <Upload className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+                      <span className="truncate flex-1 min-w-0">{file.name}</span>
+                      <span className="text-xs text-gray-400 flex-shrink-0">chưa lưu</span>
+                      <button
+                        type="button"
+                        onClick={() => removeNewAttachmentFile(i)}
+                        className="text-gray-300 hover:text-red-500 flex-shrink-0"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
-              <div className="flex items-center gap-2">
-                <Button type="button" variant="outline" size="sm" className="gap-1" onClick={() => attachmentRef.current?.click()}>
-                  <Upload className="w-3 h-3" /> {attachmentFile ? "Đổi file" : form.attachmentUrl ? "Thay file" : "Chọn file"}
-                </Button>
-                {attachmentFile && (
-                  <>
-                    <span className="text-sm text-gray-600 truncate">{attachmentFile.name}</span>
-                    <button type="button" onClick={() => { setAttachmentFile(null); if (attachmentRef.current) attachmentRef.current.value = ""; }} className="text-gray-300 hover:text-red-500">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </>
-                )}
-                <input
-                  ref={attachmentRef}
-                  type="file"
-                  className="hidden"
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
-                  onChange={(e) => setAttachmentFile(e.target.files?.[0] ?? null)}
-                />
-              </div>
-              <p className="text-xs text-gray-400">PDF, Word, Excel, ảnh (PNG/JPG) · Tối đa {MAX_ATTACHMENT_MB}MB</p>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1"
+                onClick={() => attachmentRef.current?.click()}
+                disabled={form.attachments.length + newAttachmentFiles.length >= MAX_ATTACHMENTS}
+              >
+                <Upload className="w-3 h-3" /> Thêm file
+              </Button>
+              <input
+                ref={attachmentRef}
+                type="file"
+                multiple
+                className="hidden"
+                accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                onChange={(e) => addAttachmentFiles(e.target.files)}
+              />
+              <p className="text-xs text-gray-400">PDF, Word, Excel, ảnh (PNG/JPG) · Mỗi file tối đa {MAX_ATTACHMENT_MB}MB</p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-4">

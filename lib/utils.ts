@@ -52,22 +52,31 @@ export function getScoreColor(score: number, max = 100) {
 }
 
 export const DEPARTMENTS: Record<string, string> = {
-  market: "Kinh doanh",
-  finance: "Tài chính – Kế toán",
-  factory: "Vận hành Nhà máy",
-  hr: "Nhân sự – Hành chính",
-  director: "Ban Giám đốc",
-  qa: "QA – Chất lượng",
+  kd_thi_truong: "Kinh doanh thị trường",
+  ky_thuat: "Kỹ thuật",
+  ql_hanh_chinh: "Quản lý - tổ chức hành chính",
+  tai_chinh: "Tài chính",
+  hdqt_bks: "HĐQT và BKS",
 };
 
 export const FACTORIES: Record<string, string> = {
-  apfco: "APFCO (Quảng Ngãi)",
-  kontum: "Kon Tum",
-  sepon: "Sê Pôn",
-  attapeu: "Attapeu",
-  eakar: "Ea Kar",
-  taoy: "Ta Oy",
-  dakto: "Đắk Tô",
+  vp_cong_ty: "Văn phòng công ty",
+  xuong_co_khi: "Xưởng cơ khí",
+  tbs_quang_ngai: "Nhà máy TBS Quảng Ngãi",
+  tbs_dak_to: "Nhà máy TBS Đăk Tô",
+  tbs_gia_lai: "Nhà máy TBS Gia Lai",
+  tbs_dong_xuan: "Nhà máy TBS Đồng Xuân",
+  tbs_dak_song: "Nhà máy TBS Đăk Song",
+  tbs_tan_chau: "Nhà máy TBS Tân Châu",
+  tbs_dong_phu: "Nhà máy TBS Đồng Phú",
+  tbs_kon_tum: "Công ty TBS Kon Tum",
+  khanh_duong_dak_lak: "Công ty Khánh Dương Đăk Lăk",
+  tbs_eakar: "Công ty TBS Eakar",
+  nong_san_tay_nguyen: "Công ty nông sản Tây Nguyên",
+  tbs_dak_nong: "Công ty TBS Đăk Nông",
+  tbs_se_pon: "Công ty TBS Sê Pôn",
+  tbs_attapeu: "Công ty TBS Attapeu",
+  tbs_taoy: "Công ty TBS Taoy",
 };
 
 export const ROLES: Record<string, string> = {

@@ -18,7 +18,7 @@ import {
   UserPlus, Upload, Download, Pencil, Trash2, KeyRound, Copy, Search,
   CheckCircle2, XCircle, AlertTriangle, Loader2, Users as UsersIcon, Mail,
 } from "lucide-react";
-import { DEPARTMENTS, FACTORIES, ROLES, formatDate, parseCsv } from "@/lib/utils";
+import { DEPARTMENTS, FACTORIES, ROLES, formatDate, parseCsv, resolveCatalogKey } from "@/lib/utils";
 import type { Profile } from "@/types/database.types";
 import {
   createUserAction, updateUserAction, deleteUserAction, resetPasswordAction,
@@ -55,23 +55,23 @@ function validateRows(rows: string[][]): ParsedRow[] {
     const [fullName = "", email = "", department = "", factory = "", role = ""] = cols;
     const warnings: string[] = [];
 
-    let dept: string | null = department || null;
-    if (dept && !(dept in DEPARTMENTS)) {
-      warnings.push(`Phòng ban "${dept}" không hợp lệ, sẽ để trống`);
-      dept = null;
+    // Chấp nhận cả key nội bộ lẫn tên hiển thị (không phân biệt hoa/thường)
+    // cho phòng ban, nhà máy và role — admin thường gõ tên hiển thị.
+    let dept: string | null = department.trim() ? resolveCatalogKey(department, DEPARTMENTS) : null;
+    if (department.trim() && !dept) {
+      warnings.push(`Phòng ban "${department.trim()}" không hợp lệ, sẽ để trống`);
     }
 
-    let fac: string | null = factory || null;
-    if (fac && !(fac in FACTORIES)) {
-      warnings.push(`Nhà máy "${fac}" không hợp lệ, sẽ để trống`);
-      fac = null;
+    let fac: string | null = factory.trim() ? resolveCatalogKey(factory, FACTORIES) : null;
+    if (factory.trim() && !fac) {
+      warnings.push(`Nhà máy "${factory.trim()}" không hợp lệ, sẽ để trống`);
     }
 
-    let finalRole = role || "student";
-    if (!(finalRole in ROLES)) {
-      warnings.push(`Role "${finalRole}" không hợp lệ, sẽ dùng "student"`);
-      finalRole = "student";
+    let finalRole = role.trim() ? resolveCatalogKey(role, ROLES) : null;
+    if (role.trim() && !finalRole) {
+      warnings.push(`Role "${role.trim()}" không hợp lệ, sẽ dùng "Học viên"`);
     }
+    finalRole = finalRole || "student";
 
     const valid = Boolean(fullName.trim()) && email.includes("@");
     if (!valid) warnings.push("Thiếu họ tên hoặc email không hợp lệ");
@@ -133,6 +133,9 @@ export function UserManager({ users, currentUserId }: Props) {
       return matchesQuery && matchesRole;
     });
   }, [users, search, roleFilter]);
+
+  // Email đã tồn tại — dùng để báo trước dòng nào sẽ "cập nhật" thay vì "tạo mới" khi import.
+  const existingEmails = useMemo(() => new Set(users.map((u) => u.email?.toLowerCase())), [users]);
 
   // Selection (chọn nhiều để kích hoạt hàng loạt)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -411,9 +414,9 @@ export function UserManager({ users, currentUserId }: Props) {
   }
 
   function downloadImportResults() {
-    const header = "full_name,email,password,status,error";
+    const header = "full_name,email,password,action,status,error";
     const lines = importResults.map((r) =>
-      [r.fullName, r.email, r.password ?? "", r.success ? "success" : "failed", r.error ?? ""].join(",")
+      [r.fullName, r.email, r.password ?? "", r.action ?? "", r.success ? "success" : "failed", r.error ?? ""].join(",")
     );
     downloadText(`ket-qua-import-${new Date().toISOString().slice(0, 10)}.csv`, [header, ...lines].join("\n"));
   }
@@ -924,10 +927,11 @@ export function UserManager({ users, currentUserId }: Props) {
             <DialogTitle>Import danh sách người dùng</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-4">
               <p className="text-sm text-gray-500">
                 Cột (CSV hoặc Excel .xlsx): <code className="text-xs bg-gray-100 px-1 rounded">full_name,email,department,factory,role</code>
-                {" "}(2 cột cuối không bắt buộc)
+                {" "}(2 cột cuối không bắt buộc). Phòng ban/nhà máy/role có thể gõ tên hiển thị (vd. "Kỹ thuật") hoặc
+                key nội bộ. Email đã tồn tại sẽ được <strong>cập nhật</strong> phòng ban/nhà máy/role thay vì tạo trùng.
               </p>
               <Button
                 variant="outline"
@@ -936,7 +940,7 @@ export function UserManager({ users, currentUserId }: Props) {
                 onClick={() =>
                   downloadText(
                     "mau-import-nguoi-dung.csv",
-                    "full_name,email,department,factory,role\nNguyễn Văn A,nguyenvana@apfco.com.vn,market,apfco,student"
+                    "full_name,email,department,factory,role\nNguyễn Văn A,nguyenvana@apfco.com.vn,Kinh doanh thị trường,Văn phòng công ty,Học viên"
                   )
                 }
               >
@@ -987,6 +991,7 @@ export function UserManager({ users, currentUserId }: Props) {
                       <TableHead>Email</TableHead>
                       <TableHead>Phòng ban</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead>Hành động</TableHead>
                       <TableHead>Trạng thái</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -997,6 +1002,13 @@ export function UserManager({ users, currentUserId }: Props) {
                         <TableCell>{r.email}</TableCell>
                         <TableCell>{r.department ? DEPARTMENTS[r.department] : "--"}</TableCell>
                         <TableCell>{ROLES[r.role ?? "student"]}</TableCell>
+                        <TableCell>
+                          {existingEmails.has(r.email.toLowerCase()) ? (
+                            <span className="text-xs text-blue-600">Cập nhật</span>
+                          ) : (
+                            <span className="text-xs text-gray-500">Tạo mới</span>
+                          )}
+                        </TableCell>
                         <TableCell>
                           {r.valid ? (
                             r.warnings.length > 0 ? (
@@ -1045,7 +1057,13 @@ export function UserManager({ users, currentUserId }: Props) {
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm">
-                    <span className="text-green-600 font-medium">{importResults.filter((r) => r.success).length} thành công</span>
+                    <span className="text-green-600 font-medium">
+                      {importResults.filter((r) => r.success && r.action === "created").length} đã tạo
+                    </span>
+                    {" · "}
+                    <span className="text-blue-600 font-medium">
+                      {importResults.filter((r) => r.success && r.action === "updated").length} đã cập nhật
+                    </span>
                     {" · "}
                     <span className="text-red-500 font-medium">{importResults.filter((r) => !r.success).length} lỗi</span>
                   </p>
@@ -1067,7 +1085,9 @@ export function UserManager({ users, currentUserId }: Props) {
                           <TableCell>{r.email}</TableCell>
                           <TableCell>
                             {r.success ? (
-                              <span className="text-xs text-green-600">Đã tạo</span>
+                              <span className={`text-xs ${r.action === "updated" ? "text-blue-600" : "text-green-600"}`}>
+                                {r.action === "updated" ? "Đã cập nhật" : "Đã tạo"}
+                              </span>
                             ) : (
                               <span className="text-xs text-red-500">{r.error}</span>
                             )}
@@ -1078,7 +1098,8 @@ export function UserManager({ users, currentUserId }: Props) {
                   </Table>
                 </div>
                 <p className="text-xs text-gray-400">
-                  Mật khẩu chỉ hiển thị trong file tải về ở trên — hãy lưu lại trước khi đóng cửa sổ này.
+                  Mật khẩu chỉ hiển thị trong file tải về ở trên (chỉ có với tài khoản mới tạo) — hãy lưu lại trước khi
+                  đóng cửa sổ này.
                 </p>
               </div>
             )}

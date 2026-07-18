@@ -60,6 +60,7 @@ export interface CreateUserResult {
   email: string;
   fullName: string;
   password?: string;
+  action?: "created" | "updated";
   error?: string;
 }
 
@@ -96,7 +97,7 @@ async function createOneUser(
     return { success: false, email: input.email, fullName: input.fullName, error: profileErr.message };
   }
 
-  return { success: true, email: input.email, fullName: input.fullName, password };
+  return { success: true, email: input.email, fullName: input.fullName, password, action: "created" };
 }
 
 export async function createUserAction(input: NewUserInput): Promise<CreateUserResult> {
@@ -107,12 +108,44 @@ export async function createUserAction(input: NewUserInput): Promise<CreateUserR
   return createOneUser(serviceClient(), input);
 }
 
+// Nếu email đã tồn tại, cập nhật họ tên/phòng ban/nhà máy/role thay vì báo
+// lỗi trùng — cho phép dùng cùng file import để vừa tạo user mới vừa đồng
+// bộ lại thông tin cho user đã có, không cần tách 2 luồng riêng.
+async function updateOneUserByEmail(
+  service: ReturnType<typeof serviceClient>,
+  profileId: string,
+  input: NewUserInput
+): Promise<CreateUserResult> {
+  const { error } = await service
+    .from("profiles")
+    .update({
+      full_name: input.fullName,
+      department: input.department || null,
+      factory: input.factory || null,
+      role: input.role || "student",
+    })
+    .eq("id", profileId);
+
+  if (error) {
+    return { success: false, email: input.email, fullName: input.fullName, action: "updated", error: error.message };
+  }
+  return { success: true, email: input.email, fullName: input.fullName, action: "updated" };
+}
+
 export async function importUsersAction(rows: NewUserInput[]): Promise<CreateUserResult[]> {
   await requireAdmin();
   const service = serviceClient();
   const results: CreateUserResult[] = [];
   for (const row of rows) {
-    results.push(await createOneUser(service, row));
+    const { data: existing } = await service
+      .from("profiles")
+      .select("id")
+      .ilike("email", row.email)
+      .maybeSingle();
+
+    results.push(
+      existing ? await updateOneUserByEmail(service, existing.id, row) : await createOneUser(service, row)
+    );
   }
   return results;
 }

@@ -79,6 +79,18 @@ export const FACTORIES: Record<string, string> = {
   tbs_taoy: "Công ty TBS Taoy",
 };
 
+// Chấp nhận cả key nội bộ (vd. "kd_thi_truong") lẫn nhãn hiển thị (vd.
+// "Kinh doanh thị trường", không phân biệt hoa/thường) khi người dùng gõ tay
+// trong file import — admin thường gõ tên hiển thị chứ không biết key nội bộ.
+export function resolveCatalogKey(value: string, dict: Record<string, string>): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed in dict) return trimmed;
+  const lower = trimmed.toLowerCase();
+  const entry = Object.entries(dict).find(([, label]) => label.toLowerCase() === lower);
+  return entry ? entry[0] : null;
+}
+
 export const ROLES: Record<string, string> = {
   student: "Học viên",
   trainer: "Trainer",

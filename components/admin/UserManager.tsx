@@ -166,10 +166,18 @@ export function UserManager({ users, currentUserId }: Props) {
   const [bulkActivating, setBulkActivating] = useState(false);
   const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
   const [bulkResults, setBulkResults] = useState<BulkActivateResult[]>([]);
+  const [bulkPasswordMode, setBulkPasswordMode] = useState<"random" | "custom">("random");
+  const [bulkCustomPassword, setBulkCustomPassword] = useState("");
+  const [bulkSendEmail, setBulkSendEmail] = useState(true);
+  const [bulkPasswordError, setBulkPasswordError] = useState("");
 
   function openBulkActivate() {
     setBulkResults([]);
     setBulkProgress({ done: 0, total: 0 });
+    setBulkPasswordMode("random");
+    setBulkCustomPassword("");
+    setBulkSendEmail(true);
+    setBulkPasswordError("");
     setBulkOpen(true);
   }
 
@@ -183,13 +191,20 @@ export function UserManager({ users, currentUserId }: Props) {
   async function handleBulkActivate() {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
+    const customPassword = bulkPasswordMode === "custom" ? bulkCustomPassword.trim() : "";
+    if (bulkPasswordMode === "custom" && customPassword.length < 6) {
+      setBulkPasswordError("Mật khẩu mặc định phải có ít nhất 6 ký tự.");
+      return;
+    }
+    setBulkPasswordError("");
     setBulkActivating(true);
     setBulkProgress({ done: 0, total: ids.length });
     const results: BulkActivateResult[] = [];
     const chunkSize = 10;
+    const options = { password: customPassword || undefined, sendEmail: bulkSendEmail };
     for (let i = 0; i < ids.length; i += chunkSize) {
       const chunk = ids.slice(i, i + chunkSize);
-      const chunkResults = await bulkActivateUsersAction(chunk);
+      const chunkResults = await bulkActivateUsersAction(chunk, options);
       results.push(...chunkResults);
       setBulkProgress({ done: results.length, total: ids.length });
     }
@@ -299,18 +314,32 @@ export function UserManager({ users, currentUserId }: Props) {
 
   // Reset password
   const [resetTarget, setResetTarget] = useState<Profile | null>(null);
+  const [resetPasswordInput, setResetPasswordInput] = useState("");
   const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState("");
   const [resetResult, setResetResult] = useState<{ user: Profile; password: string } | null>(null);
+
+  function openReset(u: Profile) {
+    setResetTarget(u);
+    setResetPasswordInput("");
+    setResetError("");
+  }
 
   async function handleResetPassword() {
     if (!resetTarget) return;
+    const custom = resetPasswordInput.trim();
+    if (custom && custom.length < 6) {
+      setResetError("Mật khẩu phải có ít nhất 6 ký tự.");
+      return;
+    }
     setResetting(true);
+    setResetError("");
     try {
-      const { password } = await resetPasswordAction(resetTarget.id);
+      const { password } = await resetPasswordAction(resetTarget.id, custom || undefined);
       setResetResult({ user: resetTarget, password });
       setResetTarget(null);
     } catch (err: any) {
-      alert(err?.message ?? "Có lỗi xảy ra.");
+      setResetError(err?.message ?? "Có lỗi xảy ra.");
     }
     setResetting(false);
   }
@@ -477,7 +506,7 @@ export function UserManager({ users, currentUserId }: Props) {
                     <Button variant="ghost" size="icon" className="h-8 w-8" title="Sửa" onClick={() => openEdit(u)}>
                       <Pencil className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Đặt lại mật khẩu" onClick={() => setResetTarget(u)}>
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Đặt lại mật khẩu" onClick={() => openReset(u)}>
                       <KeyRound className="w-4 h-4" />
                     </Button>
                     <Button
@@ -699,9 +728,18 @@ export function UserManager({ users, currentUserId }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Đặt lại mật khẩu cho "{resetTarget?.full_name}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              Mật khẩu cũ sẽ ngừng hoạt động ngay lập tức. Mật khẩu mới sẽ được sinh ngẫu nhiên và chỉ hiển thị 1 lần.
+              Mật khẩu cũ sẽ ngừng hoạt động ngay lập tức. Để trống để hệ thống tự sinh mật khẩu ngẫu nhiên, hoặc nhập
+              mật khẩu mặc định bạn muốn đặt.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-1">
+            <Input
+              value={resetPasswordInput}
+              onChange={(e) => setResetPasswordInput(e.target.value)}
+              placeholder="Để trống = tự sinh ngẫu nhiên (tối thiểu 6 ký tự nếu nhập)"
+            />
+            {resetError && <p className="text-xs text-red-500">{resetError}</p>}
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={resetting}>Hủy</AlertDialogCancel>
             <AlertDialogAction
@@ -754,10 +792,43 @@ export function UserManager({ users, currentUserId }: Props) {
             {bulkResults.length === 0 ? (
               <>
                 <p className="text-sm text-gray-600">
-                  Hệ thống sẽ đặt lại mật khẩu cho <strong>{selectedUsers.length}</strong> tài khoản đã chọn và gửi
-                  email chứa mật khẩu mới tới địa chỉ email của từng người. Mật khẩu cũ sẽ ngừng hoạt động ngay lập
-                  tức. Hành động này không thể hoàn tác.
+                  Hệ thống sẽ đặt lại mật khẩu cho <strong>{selectedUsers.length}</strong> tài khoản đã chọn. Mật khẩu
+                  cũ sẽ ngừng hoạt động ngay lập tức. Hành động này không thể hoàn tác.
                 </p>
+                <div className="space-y-3 border rounded-lg p-3 bg-gray-50">
+                  <div className="flex flex-col gap-2">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={bulkPasswordMode === "random"}
+                        onChange={() => setBulkPasswordMode("random")}
+                      />
+                      Mật khẩu ngẫu nhiên (khác nhau cho từng người)
+                    </label>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <input
+                        type="radio"
+                        checked={bulkPasswordMode === "custom"}
+                        onChange={() => setBulkPasswordMode("custom")}
+                      />
+                      Đặt mật khẩu mặc định (giống nhau cho tất cả, không cần kích hoạt từng người)
+                    </label>
+                  </div>
+                  {bulkPasswordMode === "custom" && (
+                    <div className="space-y-1 pl-6">
+                      <Input
+                        value={bulkCustomPassword}
+                        onChange={(e) => setBulkCustomPassword(e.target.value)}
+                        placeholder="Nhập mật khẩu mặc định (tối thiểu 6 ký tự)"
+                      />
+                      {bulkPasswordError && <p className="text-xs text-red-500">{bulkPasswordError}</p>}
+                    </div>
+                  )}
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox checked={bulkSendEmail} onCheckedChange={(v) => setBulkSendEmail(Boolean(v))} />
+                    Gửi email thông báo mật khẩu cho từng người
+                  </label>
+                </div>
                 <div className="max-h-48 overflow-y-auto border rounded-lg divide-y">
                   {selectedUsers.map((u) => (
                     <div key={u.id} className="px-3 py-1.5 text-sm flex items-center justify-between gap-2">
@@ -771,7 +842,7 @@ export function UserManager({ users, currentUserId }: Props) {
                     {bulkActivating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
                     {bulkActivating
                       ? `Đang xử lý ${bulkProgress.done}/${bulkProgress.total}...`
-                      : "Kích hoạt & Gửi email"}
+                      : bulkSendEmail ? "Kích hoạt & Gửi email" : "Kích hoạt (không gửi email)"}
                   </Button>
                   <Button variant="outline" onClick={closeBulkActivate} disabled={bulkActivating}>Hủy</Button>
                 </div>
@@ -785,7 +856,11 @@ export function UserManager({ users, currentUserId }: Props) {
                     </span>
                     {" · "}
                     <span className="text-yellow-600 font-medium">
-                      {bulkResults.filter((r) => r.passwordReset && !r.emailSent).length} đặt mật khẩu nhưng gửi mail lỗi
+                      {bulkResults.filter((r) => r.passwordReset && !r.emailSent && !r.emailSkipped).length} đặt mật khẩu nhưng gửi mail lỗi
+                    </span>
+                    {" · "}
+                    <span className="text-gray-500 font-medium">
+                      {bulkResults.filter((r) => r.passwordReset && r.emailSkipped).length} đặt mật khẩu, không gửi email
                     </span>
                     {" · "}
                     <span className="text-red-500 font-medium">
@@ -818,11 +893,13 @@ export function UserManager({ users, currentUserId }: Props) {
                               : <span className="text-red-500">{r.error}</span>}
                           </TableCell>
                           <TableCell className="text-xs">
-                            {r.emailSent
-                              ? <span className="text-green-600">Đã gửi</span>
-                              : r.passwordReset
-                                ? <span className="text-yellow-600">Lỗi gửi: {r.error}</span>
-                                : "--"}
+                            {r.emailSkipped
+                              ? <span className="text-gray-400">Không gửi</span>
+                              : r.emailSent
+                                ? <span className="text-green-600">Đã gửi</span>
+                                : r.passwordReset
+                                  ? <span className="text-yellow-600">Lỗi gửi: {r.error}</span>
+                                  : "--"}
                           </TableCell>
                         </TableRow>
                       ))}

@@ -42,6 +42,11 @@ function generatePassword(length = 12) {
   return Array.from(bytes, (b) => chars[b % chars.length]).join("");
 }
 
+// Giới hạn tối thiểu của Supabase Auth là 6 ký tự.
+function isValidPassword(password: string) {
+  return password.length >= 6;
+}
+
 export interface NewUserInput {
   email: string;
   fullName: string;
@@ -145,10 +150,13 @@ export async function deleteUserAction(id: string) {
   if (error) throw new Error(error.message);
 }
 
-export async function resetPasswordAction(id: string): Promise<{ password: string }> {
+export async function resetPasswordAction(id: string, customPassword?: string): Promise<{ password: string }> {
   await requireAdmin();
+  if (customPassword && !isValidPassword(customPassword)) {
+    throw new Error("Mật khẩu phải có ít nhất 6 ký tự.");
+  }
   const service = serviceClient();
-  const password = generatePassword();
+  const password = customPassword || generatePassword();
   const { error } = await service.auth.admin.updateUserById(id, { password });
   if (error) throw new Error(error.message);
   return { password };
@@ -160,13 +168,25 @@ export interface BulkActivateResult {
   fullName: string;
   passwordReset: boolean;
   emailSent: boolean;
+  emailSkipped?: boolean;
   password?: string;
   error?: string;
 }
 
+export interface BulkActivateOptions {
+  // Mật khẩu mặc định áp dụng cho toàn bộ tài khoản đã chọn. Bỏ trống = mỗi
+  // tài khoản được sinh một mật khẩu ngẫu nhiên riêng như trước.
+  password?: string;
+  // Tắt để chỉ đặt lại mật khẩu mà không gửi email — dùng khi admin muốn tự
+  // thông báo mật khẩu mặc định trực tiếp thay vì phụ thuộc vào email.
+  sendEmail?: boolean;
+}
+
 async function activateOneUser(
   service: ReturnType<typeof serviceClient>,
-  id: string
+  id: string,
+  overridePassword: string | undefined,
+  sendEmail: boolean
 ): Promise<BulkActivateResult> {
   const { data: profile } = await service
     .from("profiles")
@@ -178,10 +198,14 @@ async function activateOneUser(
     return { id, email: "", fullName: "", passwordReset: false, emailSent: false, error: "Không tìm thấy người dùng." };
   }
 
-  const password = generatePassword();
+  const password = overridePassword || generatePassword();
   const { error: pwErr } = await service.auth.admin.updateUserById(id, { password });
   if (pwErr) {
     return { id, email: profile.email, fullName: profile.full_name, passwordReset: false, emailSent: false, error: pwErr.message };
+  }
+
+  if (!sendEmail) {
+    return { id, email: profile.email, fullName: profile.full_name, passwordReset: true, emailSent: false, emailSkipped: true, password };
   }
 
   const emailResult = await sendActivationEmail({ to: profile.email, fullName: profile.full_name, password });
@@ -197,14 +221,22 @@ async function activateOneUser(
   };
 }
 
-// Đặt lại mật khẩu và gửi email chứa mật khẩu mới cho từng người dùng đã chọn.
-// Xử lý tuần tự (không Promise.all) để không vượt giới hạn tần suất gửi của Resend.
-export async function bulkActivateUsersAction(ids: string[]): Promise<BulkActivateResult[]> {
+// Đặt lại mật khẩu (ngẫu nhiên hoặc mặc định do admin chọn) và tuỳ chọn gửi
+// email cho từng người dùng đã chọn. Xử lý tuần tự (không Promise.all) để
+// không vượt giới hạn tần suất gửi của Resend.
+export async function bulkActivateUsersAction(
+  ids: string[],
+  options?: BulkActivateOptions
+): Promise<BulkActivateResult[]> {
   await requireAdmin();
+  if (options?.password && !isValidPassword(options.password)) {
+    throw new Error("Mật khẩu mặc định phải có ít nhất 6 ký tự.");
+  }
   const service = serviceClient();
+  const sendEmail = options?.sendEmail ?? true;
   const results: BulkActivateResult[] = [];
   for (const id of ids) {
-    results.push(await activateOneUser(service, id));
+    results.push(await activateOneUser(service, id, options?.password, sendEmail));
   }
   return results;
 }

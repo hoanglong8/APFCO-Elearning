@@ -9,8 +9,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle2, RotateCcw } from "lucide-react";
+import { CheckCircle2, RotateCcw, Sparkles, Loader2 } from "lucide-react";
 import type { Submission, RubricItem } from "@/types/database.types";
+import { gradeSubmissionWithAIAction } from "@/app/admin/grading/actions";
 
 interface Props {
   submission: Submission;
@@ -26,6 +27,32 @@ export function GradingPanel({ submission, rubric, maxScore, graderId }: Props) 
   const [feedback, setFeedback] = useState(submission.feedback ?? "");
   const [rubricScores, setRubricScores] = useState<Record<number, number>>({});
   const [saving, setSaving] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [aiSuggested, setAiSuggested] = useState(false);
+
+  async function handleAIGrade() {
+    setAiLoading(true);
+    setAiError("");
+    try {
+      const result = await gradeSubmissionWithAIAction(submission.id);
+      if (!result.success) {
+        setAiError(result.error ?? "AI chấm điểm thất bại.");
+        return;
+      }
+      if (result.rubricScores) {
+        setRubricScores(Object.fromEntries(result.rubricScores.map((s, i) => [i, s])));
+      } else if (typeof result.totalScore === "number") {
+        setScore(result.totalScore.toString());
+      }
+      setFeedback(result.feedback ?? "");
+      setAiSuggested(true);
+    } catch (err: any) {
+      setAiError(err?.message ?? "Có lỗi xảy ra.");
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   const rubricTotal = Object.values(rubricScores).reduce((sum, s) => sum + s, 0);
   const computedScore = rubric.length > 0 ? rubricTotal : parseInt(score) || 0;
@@ -51,6 +78,24 @@ export function GradingPanel({ submission, rubric, maxScore, graderId }: Props) 
         <CardTitle className="text-base">Chấm điểm</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        <div className="space-y-1">
+          <Button
+            variant="outline"
+            className="w-full gap-2"
+            onClick={handleAIGrade}
+            disabled={aiLoading || saving}
+          >
+            {aiLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+            {aiLoading ? "AI đang chấm..." : "Chấm bằng AI (gợi ý)"}
+          </Button>
+          {aiError && <p className="text-xs text-red-500">{aiError}</p>}
+          {aiSuggested && !aiError && (
+            <p className="text-xs text-blue-600 flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> Điểm và nhận xét dưới đây do AI gợi ý — hãy kiểm tra lại trước khi lưu.
+            </p>
+          )}
+        </div>
+
         {/* Rubric scoring */}
         {rubric.length > 0 ? (
           <div className="space-y-3">

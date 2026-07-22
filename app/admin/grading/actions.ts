@@ -122,3 +122,59 @@ export async function bulkGradeSubmissionsWithAIAction(submissionIds: string[]):
 
   return results;
 }
+
+export interface BulkReturnResult {
+  submissionId: string;
+  studentName: string;
+  assignmentTitle: string;
+  success: boolean;
+  error?: string;
+}
+
+// Yêu cầu học viên nộp lại hàng loạt (status -> "returned"). Giữ nguyên điểm
+// cũ (đúng theo hành vi khi trả lại 1 bài ở GradingPanel); nếu có "note", nối
+// thêm vào feedback hiện có thay vì ghi đè, để không mất nhận xét trước đó.
+export async function bulkRequestResubmissionAction(
+  submissionIds: string[],
+  note?: string
+): Promise<BulkReturnResult[]> {
+  const user = await requireStaff();
+  const supabase = await createServerClient();
+  const results: BulkReturnResult[] = [];
+  const trimmedNote = note?.trim();
+
+  for (const id of submissionIds) {
+    const { data: submission } = await supabase
+      .from("submissions")
+      .select("feedback, profiles!submissions_student_id_fkey(full_name), assignments(title)")
+      .eq("id", id)
+      .single();
+
+    const studentName = (submission as any)?.profiles?.full_name ?? "";
+    const assignmentTitle = (submission as any)?.assignments?.title ?? "";
+
+    if (!submission) {
+      results.push({ submissionId: id, studentName, assignmentTitle, success: false, error: "Không tìm thấy bài nộp." });
+      continue;
+    }
+
+    const existingFeedback = (submission as any).feedback as string | null;
+    const feedback = trimmedNote
+      ? [existingFeedback, trimmedNote].filter(Boolean).join("\n")
+      : existingFeedback;
+
+    const { error } = await supabase
+      .from("submissions")
+      .update({
+        status: "returned",
+        feedback,
+        graded_by: user.id,
+        graded_at: new Date().toISOString(),
+      })
+      .eq("id", id);
+
+    results.push({ submissionId: id, studentName, assignmentTitle, success: !error, error: error?.message });
+  }
+
+  return results;
+}

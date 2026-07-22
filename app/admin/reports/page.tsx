@@ -1,12 +1,25 @@
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Users, BookOpen, Star, Trophy, Target, TrendingUp } from "lucide-react";
 import { DEPARTMENTS, FACTORIES } from "@/lib/utils";
 import { StudentProgressTable, type StudentProgressRow, type GradebookData } from "@/components/admin/StudentProgressTable";
+import { AssignmentMultiFilter } from "@/components/admin/AssignmentMultiFilter";
 
-export default async function ReportsPage() {
+type SubmissionBucket = "graded" | "pending" | "returned" | "notSubmitted";
+
+function classifySubmission(sub: { status: string } | undefined): SubmissionBucket {
+  if (!sub || sub.status === "draft") return "notSubmitted";
+  if (sub.status === "graded") return "graded";
+  if (sub.status === "returned") return "returned";
+  return "pending"; // submitted, chờ chấm
+}
+
+export default async function ReportsPage({
+  searchParams,
+}: {
+  searchParams: { assignments?: string };
+}) {
   const supabase = await createClient();
 
   const [
@@ -23,14 +36,22 @@ export default async function ReportsPage() {
     supabase.from("module_progress").select("*"),
     supabase.from("submissions").select("*, assignments(max_score)"),
     supabase.from("action_plans").select("*"),
-    supabase.from("practice_logs").select("id, tool_used, self_rating, student_id, created_at"),
+    supabase.from("practice_logs").select("id, student_id, created_at"),
     supabase.from("assignments").select("id, title, max_score").eq("is_published", true).order("created_at"),
   ]);
 
   const totalStudents = profiles?.length ?? 0;
   const totalModules = modules?.length ?? 0;
+  const assignmentList = publishedAssignments ?? [];
 
-  // Completion stats
+  // Bộ lọc "tích chọn theo bài tập" — không có param nghĩa là chọn tất cả (không lọc).
+  const selectedAssignmentIds = searchParams.assignments
+    ? searchParams.assignments.split(",").filter(Boolean)
+    : assignmentList.map((a) => a.id);
+  // Guard: nếu bỏ chọn hết (0 bài), coi như không lọc để tránh báo cáo trống khó hiểu.
+  const effectiveAssignmentIds = selectedAssignmentIds.length > 0 ? selectedAssignmentIds : assignmentList.map((a) => a.id);
+
+  // Completion stats (module, dùng cho KPI "Hoàn thành TB")
   const completedPairs = allProgress?.filter((p) => p.status === "completed") ?? [];
   const overallCompletionRate = totalStudents * totalModules > 0
     ? Math.round((completedPairs.length / (totalStudents * totalModules)) * 100) : 0;
@@ -43,85 +64,97 @@ export default async function ReportsPage() {
   // Champions
   const champions = profiles?.filter((p) => p.ai_champion) ?? [];
 
-  // Department breakdown
-  const deptStats = Object.entries(DEPARTMENTS).map(([key, label]) => {
-    const deptProfiles = profiles?.filter((p) => p.department === key) ?? [];
-    const deptProgress = allProgress?.filter((p) =>
-      deptProfiles.some((prof) => prof.id === p.student_id) && p.status === "completed"
-    ) ?? [];
-    const deptSubs = gradedSubs.filter((s) =>
-      deptProfiles.some((prof) => prof.id === s.student_id)
-    );
-    const deptAvgScore = deptSubs.length > 0
-      ? Math.round(deptSubs.reduce((sum, s) => sum + (s.score ?? 0), 0) / deptSubs.length) : null;
-    const deptTotal = deptProfiles.length * totalModules;
-    const pct = deptTotal > 0 ? Math.round((deptProgress.length / deptTotal) * 100) : 0;
-    return { key, label, count: deptProfiles.length, pct, avgScore: deptAvgScore };
-  }).filter((d) => d.count > 0);
+  // Học viên đã viết kế hoạch 2 tuần (có bản ghi action_plans)
+  const studentsWithPlan = new Set((actionPlans ?? []).map((p) => p.student_id));
 
-  // Tool usage
-  const toolUsage = practiceLogs?.reduce((acc, log) => {
-    const t = log.tool_used ?? "other";
-    acc[t] = (acc[t] ?? 0) + 1;
-    return acc;
-  }, {} as Record<string, number>) ?? {};
+  // Index submissions theo student+assignment để tra cứu O(1) khi tính báo cáo theo bộ phận/nhà máy.
+  const submissionByKey = new Map<string, { status: string; score: number | null }>();
+  submissions?.forEach((s) => submissionByKey.set(`${s.student_id}_${s.assignment_id}`, s));
 
-  // Factory stats
-  const factoryStats = Object.entries(FACTORIES).map(([key, label]) => {
-    const factProfiles = profiles?.filter((p) => p.factory === key) ?? [];
-    const factCompleted = allProgress?.filter((p) =>
-      factProfiles.some((prof) => prof.id === p.student_id) && p.status === "completed"
-    ).length ?? 0;
-    const factTotal = factProfiles.length * totalModules;
-    return { key, label, count: factProfiles.length, pct: factTotal > 0 ? Math.round((factCompleted / factTotal) * 100) : 0 };
-  }).filter((f) => f.count > 0);
+  function computeGroupStats(dict: Record<string, string>, keyField: "department" | "factory") {
+    return Object.entries(dict)
+      .map(([key, label]) => {
+        const groupProfiles = profiles?.filter((p) => (p as any)[keyField] === key) ?? [];
+        if (groupProfiles.length === 0) return null;
+
+        let graded = 0, pending = 0, returned = 0, notSubmitted = 0;
+        const gradedScores: number[] = [];
+
+        for (const student of groupProfiles) {
+          for (const assignmentId of effectiveAssignmentIds) {
+            const sub = submissionByKey.get(`${student.id}_${assignmentId}`);
+            const bucket = classifySubmission(sub);
+            if (bucket === "graded") {
+              graded++;
+              if (sub?.score != null) gradedScores.push(sub.score);
+            } else if (bucket === "pending") pending++;
+            else if (bucket === "returned") returned++;
+            else notSubmitted++;
+          }
+        }
+
+        const total = groupProfiles.length * effectiveAssignmentIds.length;
+        const pct = (n: number) => (total > 0 ? Math.round((n / total) * 100) : 0);
+
+        return {
+          key,
+          label,
+          count: groupProfiles.length,
+          graded, gradedPct: pct(graded),
+          pending, pendingPct: pct(pending),
+          returned, returnedPct: pct(returned),
+          notSubmitted, notSubmittedPct: pct(notSubmitted),
+          avgScore: gradedScores.length > 0
+            ? Math.round(gradedScores.reduce((a, b) => a + b, 0) / gradedScores.length) : null,
+        };
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null);
+  }
+
+  const deptStats = computeGroupStats(DEPARTMENTS, "department");
+  const factoryStats = computeGroupStats(FACTORIES, "factory");
 
   // ROI estimate: avg 1.5h/week saved per use case
   const totalUseCases = actionPlans?.reduce((sum, p) => sum + ((p.use_cases as any[])?.length ?? 0), 0) ?? 0;
   const estimatedHoursPerWeek = Math.round(totalUseCases * 1.5);
 
   // Per-student progress table
-  const studentRows: StudentProgressRow[] = (profiles ?? [])
-    .map((p) => {
-      const pProgress = allProgress?.filter((pr) => pr.student_id === p.id) ?? [];
-      const completed = pProgress.filter((pr) => pr.status === "completed").length;
-      const pct = totalModules > 0 ? Math.round((completed / totalModules) * 100) : 0;
+  const studentRows: StudentProgressRow[] = (profiles ?? []).map((p) => {
+    const pSubs = submissions?.filter((s) => s.student_id === p.id) ?? [];
+    const pGraded = pSubs.filter((s) => s.score !== null);
+    const avgScoreStudent = pGraded.length > 0
+      ? Math.round(pGraded.reduce((sum, s) => sum + (s.score ?? 0), 0) / pGraded.length)
+      : null;
+    const submittedCount = pSubs.filter((s) => s.status !== "draft").length;
 
-      const pSubs = submissions?.filter((s) => s.student_id === p.id) ?? [];
-      const pGraded = pSubs.filter((s) => s.score !== null);
-      const avgScore = pGraded.length > 0
-        ? Math.round(pGraded.reduce((sum, s) => sum + (s.score ?? 0), 0) / pGraded.length)
-        : null;
+    const pProgress = allProgress?.filter((pr) => pr.student_id === p.id) ?? [];
+    const pLogs = practiceLogs?.filter((l) => l.student_id === p.id) ?? [];
+    const activityDates = [
+      ...pProgress.map((pr) => pr.completed_at),
+      ...pSubs.map((s) => s.created_at),
+      ...pLogs.map((l) => l.created_at),
+    ].filter((d): d is string => Boolean(d));
+    const lastActivity = activityDates.length > 0
+      ? activityDates.reduce((a, b) => (a > b ? a : b))
+      : null;
 
-      const pLogs = practiceLogs?.filter((l) => l.student_id === p.id) ?? [];
-      const activityDates = [
-        ...pProgress.map((pr) => pr.completed_at),
-        ...pSubs.map((s) => s.created_at),
-        ...pLogs.map((l) => l.created_at),
-      ].filter((d): d is string => Boolean(d));
-      const lastActivity = activityDates.length > 0
-        ? activityDates.reduce((a, b) => (a > b ? a : b))
-        : null;
-
-      return {
-        id: p.id,
-        fullName: p.full_name,
-        department: p.department ? (DEPARTMENTS[p.department] ?? p.department) : "--",
-        factory: p.factory ? (FACTORIES[p.factory] ?? p.factory) : "--",
-        completedModules: completed,
-        totalModules,
-        pct,
-        avgScore,
-        submissionsCount: pSubs.length,
-        aiChampion: Boolean(p.ai_champion),
-        lastActivity,
-      };
-    })
-    .sort((a, b) => b.pct - a.pct);
+    return {
+      id: p.id,
+      fullName: p.full_name,
+      department: p.department ? (DEPARTMENTS[p.department] ?? p.department) : "--",
+      factory: p.factory ? (FACTORIES[p.factory] ?? p.factory) : "--",
+      hasPlan: studentsWithPlan.has(p.id),
+      avgScore: avgScoreStudent,
+      submittedCount,
+      totalAssignments: assignmentList.length,
+      aiChampion: Boolean(p.ai_champion),
+      lastActivity,
+    };
+  });
 
   // Bảng điểm chi tiết (học viên × bài tập) cho sheet 2 của file Excel
   const gradebook: GradebookData = {
-    assignments: (publishedAssignments ?? []).map((a) => ({
+    assignments: assignmentList.map((a) => ({
       id: a.id,
       title: a.title,
       maxScore: a.max_score,
@@ -132,7 +165,7 @@ export default async function ReportsPage() {
         fullName: sr.fullName,
         department: sr.department,
         factory: sr.factory,
-        cells: (publishedAssignments ?? []).map((a) => {
+        cells: assignmentList.map((a) => {
           const sub = submissions?.find((s) => s.assignment_id === a.id && s.student_id === p?.id);
           if (!sub) return "Chưa nộp";
           const late = (sub as any).is_late ? " (muộn)" : "";
@@ -184,28 +217,44 @@ export default async function ReportsPage() {
       <div className="grid lg:grid-cols-2 gap-6">
         {/* Dept breakdown */}
         <Card>
-          <CardHeader className="pb-2">
+          <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0 flex-wrap gap-2">
             <CardTitle className="text-base flex items-center gap-2">
               <TrendingUp className="w-4 h-4" /> Kết quả theo Bộ phận
             </CardTitle>
+            <AssignmentMultiFilter assignments={assignmentList} />
           </CardHeader>
-          <CardContent className="space-y-4">
-            {deptStats.map((d) => (
-              <div key={d.key} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span>{d.label} <span className="text-gray-400">({d.count})</span></span>
-                  <div className="flex items-center gap-3">
-                    {d.avgScore !== null && (
-                      <span className="text-xs text-purple-600">TB: {d.avgScore}đ</span>
-                    )}
-                    <span className={`font-semibold ${d.pct >= 80 ? "text-green-600" : d.pct >= 50 ? "text-yellow-600" : "text-red-500"}`}>
-                      {d.pct}%
-                    </span>
-                  </div>
-                </div>
-                <Progress value={d.pct} className="h-2" />
-              </div>
-            ))}
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-left text-gray-500">
+                    <th className="py-2 pr-3 font-medium">Bộ phận</th>
+                    <th className="py-2 pr-3 font-medium text-right">Học viên</th>
+                    <th className="py-2 pr-3 font-medium text-right">Được chấm xong</th>
+                    <th className="py-2 pr-3 font-medium text-right">Chờ chấm</th>
+                    <th className="py-2 pr-3 font-medium text-right">Yêu cầu làm lại</th>
+                    <th className="py-2 pr-3 font-medium text-right">Chưa gửi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deptStats.map((d) => (
+                    <tr key={d.key} className="border-b last:border-0">
+                      <td className="py-2 pr-3 text-gray-900">{d.label}</td>
+                      <td className="py-2 pr-3 text-right text-gray-500">{d.count}</td>
+                      <td className="py-2 pr-3 text-right text-green-600 font-medium">{d.graded} ({d.gradedPct}%)</td>
+                      <td className="py-2 pr-3 text-right text-orange-600">{d.pending} ({d.pendingPct}%)</td>
+                      <td className="py-2 pr-3 text-right text-red-500">{d.returned} ({d.returnedPct}%)</td>
+                      <td className="py-2 pr-3 text-right text-gray-400">{d.notSubmitted} ({d.notSubmittedPct}%)</td>
+                    </tr>
+                  ))}
+                  {deptStats.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-gray-400">Chưa có dữ liệu</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
 
@@ -214,43 +263,41 @@ export default async function ReportsPage() {
           <CardHeader className="pb-2">
             <CardTitle className="text-base">Kết quả theo Nhà máy / Đơn vị</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            {factoryStats.map((f) => (
-              <div key={f.key} className="space-y-1">
-                <div className="flex items-center justify-between text-sm">
-                  <span>{f.label} <span className="text-gray-400">({f.count})</span></span>
-                  <span className={`font-semibold ${f.pct >= 80 ? "text-green-600" : f.pct >= 50 ? "text-yellow-600" : "text-red-500"}`}>
-                    {f.pct}%
-                  </span>
-                </div>
-                <Progress value={f.pct} className="h-2" />
-              </div>
-            ))}
-            {factoryStats.length === 0 && <p className="text-sm text-gray-400 text-center py-4">Chưa có dữ liệu</p>}
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b text-left text-gray-500">
+                    <th className="py-2 pr-3 font-medium">Nhà máy / Đơn vị</th>
+                    <th className="py-2 pr-3 font-medium text-right">Học viên</th>
+                    <th className="py-2 pr-3 font-medium text-right">% Hoàn thành</th>
+                    <th className="py-2 pr-3 font-medium text-right">Điểm TB</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {factoryStats.map((f) => (
+                    <tr key={f.key} className="border-b last:border-0">
+                      <td className="py-2 pr-3 text-gray-900">{f.label}</td>
+                      <td className="py-2 pr-3 text-right text-gray-500">{f.count}</td>
+                      <td className={`py-2 pr-3 text-right font-medium ${f.gradedPct >= 80 ? "text-green-600" : f.gradedPct >= 50 ? "text-yellow-600" : "text-red-500"}`}>
+                        {f.graded} ({f.gradedPct}%)
+                      </td>
+                      <td className="py-2 pr-3 text-right text-purple-600">{f.avgScore ?? "--"}</td>
+                    </tr>
+                  ))}
+                  {factoryStats.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-6 text-center text-gray-400">Chưa có dữ liệu</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </CardContent>
         </Card>
       </div>
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* Tool usage */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Công cụ AI được dùng</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {Object.entries(toolUsage).sort(([, a], [, b]) => b - a).map(([tool, count]) => (
-              <div key={tool} className="flex items-center justify-between">
-                <span className="text-sm capitalize">{tool}</span>
-                <div className="flex items-center gap-2">
-                  <Progress value={(count / (practiceLogs?.length ?? 1)) * 100} className="h-2 w-24" />
-                  <span className="text-xs text-gray-500 w-8 text-right">{count}</span>
-                </div>
-              </div>
-            ))}
-            {Object.keys(toolUsage).length === 0 && <p className="text-sm text-gray-400">Chưa có log</p>}
-          </CardContent>
-        </Card>
-
+      <div className="grid lg:grid-cols-2 gap-6">
         {/* ROI estimate */}
         <Card>
           <CardHeader className="pb-2">

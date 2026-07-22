@@ -8,6 +8,7 @@ import { ClipboardList, ChevronRight } from "lucide-react";
 import { formatDateTime, STATUS_LABELS } from "@/lib/utils";
 import { GradingFilter } from "@/components/admin/GradingFilter";
 import { PendingSubmissionsList } from "@/components/admin/PendingSubmissionsList";
+import { GradedSubmissionsList } from "@/components/admin/GradedSubmissionsList";
 
 const statusColor: Record<string, string> = {
   submitted: "bg-orange-50 text-orange-700",
@@ -38,12 +39,6 @@ export default async function GradingPage({
   const pending = filtered?.filter((s) => s.status === "submitted") ?? [];
   const graded = filtered?.filter((s) => s.status === "graded") ?? [];
   const returned = filtered?.filter((s) => s.status === "returned") ?? [];
-
-  const groups = [
-    { key: "pending", data: pending, empty: "Không có bài nào chờ chấm" },
-    { key: "graded", data: graded, empty: "Chưa có bài nào được chấm" },
-    { key: "returned", data: returned, empty: "Không có bài nào yêu cầu nộp lại" },
-  ];
 
   return (
     <div className="space-y-6">
@@ -80,57 +75,55 @@ export default async function GradingPage({
           <PendingSubmissionsList submissions={pending} />
         </TabsContent>
 
-        {groups.slice(1).map(({ key, data, empty }) => (
-          <TabsContent key={key} value={key} className="mt-4 space-y-3">
-            {data.map((sub) => {
-              const profile = (sub as any).profiles;
-              const assignment = (sub as any).assignments;
-              return (
-                <Card key={sub.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <ClipboardList className="w-5 h-5 text-indigo-600" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="font-semibold text-gray-900">{profile?.full_name ?? "Học viên"}</p>
-                            <p className="text-sm text-gray-500">{assignment?.title ?? "Bài tập"}</p>
-                          </div>
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {sub.status === "graded" && sub.score !== null && (
-                              <span className="font-bold text-green-700">{sub.score}/{assignment?.max_score}</span>
-                            )}
-                            {(sub as any).is_late && (
-                              <Badge className="text-xs border-0 bg-amber-50 text-amber-700">Nộp muộn</Badge>
-                            )}
-                            <Badge className={`text-xs border-0 ${statusColor[sub.status] ?? "bg-gray-50 text-gray-600"}`}>
-                              {STATUS_LABELS[sub.status]}
-                            </Badge>
-                          </div>
-                        </div>
-                        <p className="text-xs text-gray-400 mt-1">Nộp: {formatDateTime((sub as any).submitted_at ?? sub.created_at)}</p>
-                      </div>
-                      <Link href={`/admin/grading/${sub.id}`}>
-                        <Button size="sm" variant={key === "pending" ? "default" : "outline"} className="gap-1">
-                          {key === "pending" ? "Chấm bài" : key === "returned" ? "Xem lại" : "Chấm lại"}
-                          <ChevronRight className="w-3 h-3" />
-                        </Button>
-                      </Link>
+        <TabsContent value="graded" className="mt-4">
+          <GradedSubmissionsList submissions={graded} />
+        </TabsContent>
+
+        <TabsContent value="returned" className="mt-4 space-y-3">
+          {returned.map((sub) => {
+            const profile = (sub as any).profiles;
+            const assignment = (sub as any).assignments;
+            return (
+              <Card key={sub.id} className="hover:shadow-md transition-shadow">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <ClipboardList className="w-5 h-5 text-indigo-600" />
                     </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-            {data.length === 0 && (
-              <div className="text-center py-12 text-gray-400">
-                <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>{empty}</p>
-              </div>
-            )}
-          </TabsContent>
-        ))}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-gray-900">{profile?.full_name ?? "Học viên"}</p>
+                          <p className="text-sm text-gray-500">{assignment?.title ?? "Bài tập"}</p>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {(sub as any).is_late && (
+                            <Badge className="text-xs border-0 bg-amber-50 text-amber-700">Nộp muộn</Badge>
+                          )}
+                          <Badge className={`text-xs border-0 ${statusColor[sub.status] ?? "bg-gray-50 text-gray-600"}`}>
+                            {STATUS_LABELS[sub.status]}
+                          </Badge>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-400 mt-1">Nộp: {formatDateTime((sub as any).submitted_at ?? sub.created_at)}</p>
+                    </div>
+                    <Link href={`/admin/grading/${sub.id}`}>
+                      <Button size="sm" variant="outline" className="gap-1">
+                        Xem lại <ChevronRight className="w-3 h-3" />
+                      </Button>
+                    </Link>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+          {returned.length === 0 && (
+            <div className="text-center py-12 text-gray-400">
+              <ClipboardList className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>Không có bài nào yêu cầu nộp lại</p>
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
     </div>
   );

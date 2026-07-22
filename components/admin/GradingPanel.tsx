@@ -40,7 +40,11 @@ export function GradingPanel({ submission, rubric, maxScore, graderId }: Props) 
         setAiError(result.error ?? "AI chấm điểm thất bại.");
         return;
       }
-      if (result.rubricScores) {
+      if (rubric.length > 0) {
+        if (!result.rubricScores) {
+          setAiError("AI không trả về điểm theo rubric, vui lòng thử lại.");
+          return;
+        }
         setRubricScores(Object.fromEntries(result.rubricScores.map((s, i) => [i, s])));
       } else if (typeof result.totalScore === "number") {
         setScore(result.totalScore.toString());

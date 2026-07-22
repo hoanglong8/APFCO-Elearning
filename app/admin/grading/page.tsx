@@ -7,6 +7,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { ClipboardList, ChevronRight } from "lucide-react";
 import { formatDateTime, STATUS_LABELS } from "@/lib/utils";
 import { GradingFilter } from "@/components/admin/GradingFilter";
+import { PendingSubmissionsList } from "@/components/admin/PendingSubmissionsList";
 
 const statusColor: Record<string, string> = {
   submitted: "bg-orange-50 text-orange-700",
@@ -75,7 +76,11 @@ export default async function GradingPage({
           </TabsTrigger>
         </TabsList>
 
-        {groups.map(({ key, data, empty }) => (
+        <TabsContent value="pending" className="mt-4">
+          <PendingSubmissionsList submissions={pending} />
+        </TabsContent>
+
+        {groups.slice(1).map(({ key, data, empty }) => (
           <TabsContent key={key} value={key} className="mt-4 space-y-3">
             {data.map((sub) => {
               const profile = (sub as any).profiles;

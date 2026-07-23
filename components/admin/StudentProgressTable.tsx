@@ -1,11 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Loader2, ArrowUp, ArrowDown, ArrowUpDown } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Download, Loader2, ArrowUp, ArrowDown, ArrowUpDown, Trophy } from "lucide-react";
 import { formatDateTime } from "@/lib/utils";
+import { setAIChampionsAction } from "@/app/admin/reports/actions";
 
 export interface StudentProgressRow {
   id: string;
@@ -58,9 +62,59 @@ function compareValues(a: StudentProgressRow, b: StudentProgressRow, key: SortKe
 }
 
 export function StudentProgressTable({ rows, gradebook }: { rows: StudentProgressRow[]; gradebook?: GradebookData }) {
+  const router = useRouter();
   const [exporting, setExporting] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("fullName");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  // Chọn AI Champion: tích thủ công hoặc lấy Top N theo Điểm TB.
+  const [selectedChampionIds, setSelectedChampionIds] = useState<Set<string>>(
+    () => new Set(rows.filter((r) => r.aiChampion).map((r) => r.id))
+  );
+  const [topN, setTopN] = useState(5);
+  const [savingChampions, setSavingChampions] = useState(false);
+  const [championMessage, setChampionMessage] = useState("");
+
+  function toggleChampion(id: string) {
+    setChampionMessage("");
+    setSelectedChampionIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectTopN() {
+    setChampionMessage("");
+    const ranked = rows
+      .filter((r) => r.avgScore !== null)
+      .sort((a, b) => (b.avgScore as number) - (a.avgScore as number))
+      .slice(0, Math.max(0, topN));
+    setSelectedChampionIds(new Set(ranked.map((r) => r.id)));
+  }
+
+  function clearChampionSelection() {
+    setChampionMessage("");
+    setSelectedChampionIds(new Set());
+  }
+
+  async function handleSaveChampions() {
+    setSavingChampions(true);
+    setChampionMessage("");
+    try {
+      const result = await setAIChampionsAction(Array.from(selectedChampionIds));
+      if (!result.success) {
+        setChampionMessage(result.error ?? "Có lỗi xảy ra.");
+      } else {
+        setChampionMessage(`Đã lưu ${selectedChampionIds.size} AI Champion.`);
+        router.refresh();
+      }
+    } catch (err: any) {
+      setChampionMessage(err?.message ?? "Có lỗi xảy ra.");
+    }
+    setSavingChampions(false);
+  }
 
   function handleSort(key: SortKey) {
     if (key === sortKey) {
@@ -171,12 +225,50 @@ export function StudentProgressTable({ rows, gradebook }: { rows: StudentProgres
           Xuất Excel
         </Button>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        <div className="border rounded-lg p-3 bg-gray-50 space-y-2">
+          <p className="text-sm font-medium flex items-center gap-1.5">
+            <Trophy className="w-4 h-4 text-yellow-500" /> Chọn AI Champion
+          </p>
+          <div className="flex items-end gap-3 flex-wrap">
+            <div className="space-y-1">
+              <label className="text-xs text-gray-500">Top N theo Điểm TB</label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  min={1}
+                  value={topN}
+                  onChange={(e) => setTopN(Math.max(1, Number(e.target.value) || 1))}
+                  className="w-20"
+                />
+                <Button size="sm" variant="outline" onClick={selectTopN}>Chọn Top {topN}</Button>
+              </div>
+            </div>
+            <Button size="sm" variant="outline" onClick={clearChampionSelection} disabled={selectedChampionIds.size === 0}>
+              Bỏ chọn tất cả
+            </Button>
+            <Button
+              size="sm"
+              className="gap-2 sm:ml-auto"
+              onClick={handleSaveChampions}
+              disabled={savingChampions}
+            >
+              {savingChampions ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+              {savingChampions ? "Đang lưu..." : `Lưu AI Champion (${selectedChampionIds.size})`}
+            </Button>
+          </div>
+          {championMessage && <p className="text-xs text-gray-600">{championMessage}</p>}
+          <p className="text-xs text-gray-400">
+            Lưu sẽ đặt lại đúng danh sách đã tích chọn — bỏ tích ai đó đang là Champion sẽ gỡ badge của họ.
+          </p>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-gray-500">
                 <th className="py-2 pr-4 font-medium">STT</th>
+                <th className="py-2 pr-4 font-medium">Champion</th>
                 {columns.map((col) => (
                   <th key={col.key} className="py-2 pr-4 font-medium">
                     <button
@@ -200,9 +292,15 @@ export function StudentProgressTable({ rows, gradebook }: { rows: StudentProgres
                 <tr key={r.id} className="border-b last:border-0">
                   <td className="py-2 pr-4 text-gray-400">{i + 1}</td>
                   <td className="py-2 pr-4">
+                    <Checkbox
+                      checked={selectedChampionIds.has(r.id)}
+                      onCheckedChange={() => toggleChampion(r.id)}
+                    />
+                  </td>
+                  <td className="py-2 pr-4">
                     <div className="flex items-center gap-2">
                       <span className="font-medium text-gray-900">{r.fullName}</span>
-                      {r.aiChampion && (
+                      {selectedChampionIds.has(r.id) && (
                         <Badge className="text-[10px] bg-yellow-100 text-yellow-800 border-0">Champion</Badge>
                       )}
                     </div>
@@ -223,7 +321,7 @@ export function StudentProgressTable({ rows, gradebook }: { rows: StudentProgres
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-6 text-center text-gray-400">Chưa có học viên</td>
+                  <td colSpan={9} className="py-6 text-center text-gray-400">Chưa có học viên</td>
                 </tr>
               )}
             </tbody>

@@ -5,6 +5,7 @@ import { Users, BookOpen, Star, Trophy, Target, TrendingUp } from "lucide-react"
 import { DEPARTMENTS, FACTORIES } from "@/lib/utils";
 import { StudentProgressTable, type StudentProgressRow, type GradebookData } from "@/components/admin/StudentProgressTable";
 import { AssignmentMultiFilter } from "@/components/admin/AssignmentMultiFilter";
+import { CertificateGenerator } from "@/components/admin/CertificateGenerator";
 
 type SubmissionBucket = "graded" | "pending" | "returned" | "notSubmitted";
 
@@ -354,6 +355,8 @@ export default async function ReportsPage({
           </CardContent>
         </Card>
       </div>
+
+      <CertificateGenerator rows={studentRows} />
 
       <StudentProgressTable rows={studentRows} gradebook={gradebook} />
     </div>
